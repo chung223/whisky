@@ -29,15 +29,19 @@ final class SpacerController: NSObject {
 
     var isActive: Bool { statusItem != nil && windowID != nil }
 
+    /// Experiment (2026-10-16): at launch, create the spacer already expanded. Created 1 pt wide it lands at the notch
+    /// boundary and macOS swaps it with its left neighbour, so every launch needs the run put back.
+    static var createsExpandedAtLaunch: Bool { UserDefaults.standard.bool(forKey: "spacerCreatedExpanded") }
+
     /// Creates the spacer if it is enabled (its autosave position puts it back where it was).
     func start() async {
-        if isEnabled, statusItem == nil { await create() }
+        if isEnabled, statusItem == nil { await create(expanded: Self.createsExpandedAtLaunch) }
     }
 
-    func create() async {
+    func create(expanded: Bool = false) async {
         guard statusItem == nil else { return }
-        // Created short, so learning its window doesn't push anything around; lengthened once known.
-        let result = await OwnItems.create(length: 1, autosaveName: Self.autosaveName) { item in
+        // Normally created short, so learning its window doesn't push anything around; lengthened once known.
+        let result = await OwnItems.create(length: expanded ? Self.length : 1, autosaveName: Self.autosaveName) { item in
             guard let button = item.button else { return }
             button.title = ""
             button.image = nil
@@ -50,7 +54,7 @@ final class SpacerController: NSObject {
         }
         statusItem = result.item
         windowID = result.windowID
-        Log.write("spacer: created, window \(result.windowID.map(String.init) ?? "unknown")")
+        Log.write("spacer: created\(expanded ? " expanded" : ""), window \(result.windowID.map(String.init) ?? "unknown")")
     }
 
     /// Pushes everything left of the spacer off the screen (or, collapsed, lets it all back).

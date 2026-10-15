@@ -30,6 +30,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var memory: LayoutMemory!
     private var watcher: ChangeWatcher!
     private let settings = SettingsController()
+    private let welcome = WelcomeController()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
@@ -86,6 +87,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         watcher.canAnnounce = { [weak self] in self?.bar.canAnnounce ?? false }
         watcher.onChange = { [weak self] item in self?.bar.announce(item) }
         watcher.start()
+        wireWelcome()
+        if !WelcomeController.hasBeenSeen {
+            // First launch: explain before asking for anything.
+            welcome.show()
+        }
 
         if permissions.isAccessibilityTrusted {
             Task {
@@ -94,7 +100,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // The real images, ahead of the first time Whisky Bar opens.
                 await model.refresh(captureGlyphs: true)
             }
-        } else {
+        } else if WelcomeController.hasBeenSeen {
             permissions.requestAccessibility()
         }
     }
@@ -219,6 +225,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         Log.write("item shortcut: \(key) → \(shortcut?.display ?? "none")")
         return nil
+    }
+
+    // MARK: - Welcome
+
+    private func wireWelcome() {
+        welcome.refresh = { [weak self] model in
+            guard let self else { return }
+            model.hasAccessibility = self.permissions.isAccessibilityTrusted
+            model.hasScreenRecording = Permissions.hasScreenRecording
+            model.hasNotch = NotchPresenter.isAvailable && self.bar.opensFromNotch
+            model.shortcut = HotKeyPreference.shortcut?.display
+        }
+        welcome.model.requestAccessibility = { [weak self] in self?.requestAccessibility() }
+        welcome.model.requestScreenRecording = { [weak self] in
+            self?.model.showsRealImages = true
+            Permissions.requestScreenRecording()
+        }
+        welcome.model.showEditor = { [weak self] in
+            self?.welcome.close()
+            self?.editor.show()
+        }
     }
 
     // MARK: - Settings
@@ -352,9 +379,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// offers to put things right. Whisky doesn't move items on its own.
     private func startSpacer() async {
         await spacer.start()
-        if spacer.isActive, !spacer.isExpanded {
+        if spacer.isActive {
             if await memory.runMatchesArrangement() {
-                spacer.setExpanded(true)
+                if !spacer.isExpanded { spacer.setExpanded(true) }
             } else if placesRunAtLaunch {
                 applyGlassPlacement()
                 await placeRunWhenIdle()
@@ -466,6 +493,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 if let destination { Task { _ = await arranger.moveRaw(item, to: destination) } }
             case ("arrange", _): editor.show()
             case ("settings", _): settings.show()
+            case ("welcome", _): welcome.show()
             case ("notch-peek", _): bar.showNotchPeekForTesting()
             case ("notch-alert", _):
                 // Testing: points out the first hidden item as if it had changed.

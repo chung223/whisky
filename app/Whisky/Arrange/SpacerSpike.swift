@@ -35,8 +35,9 @@ final class SpacerSpike {
         let hadSpacer = spacer.isActive
         defer { Log.write("spike: end, \(failures) failure(s)") }
 
-        // 1. Test items and the spacer, with window IDs learned at creation.
-        for (index, width) in [30, 44, 60, 84].enumerated() {
+        // 1. Test items and the spacer, with window IDs learned at creation. T5 and T6 are wide: with all six in the
+        //    run it reaches the notch boundary, where the 1 pt spacer once went astray (step 9).
+        for (index, width) in [30, 44, 60, 84, 100, 100].enumerated() {
             let result = await OwnItems.create(length: CGFloat(width), autosaveName: "WhiskyTest\(index + 1)") { item in
                 item.button?.title = "T\(index + 1)"
                 if index == 2 {
@@ -109,6 +110,19 @@ final class SpacerSpike {
         } else {
             check("menu mirroring reads an off-screen item's menu", false, detail: "T3 window missing")
         }
+
+        // 9. A run that fills the space up to the notch: turn the spacer on keeping all six (the way Settings does).
+        //    The old order (pin the run, then the 1 pt spacer) left the spacer at the notch boundary, where macOS
+        //    reshuffled it far left (2026-10-16, on the user's menu bar). Now the spacer is pinned and expanded first.
+        spacer.setExpanded(false)
+        try? await Task.sleep(for: .milliseconds(400))
+        let all = Array(ids.prefix(6))
+        let wide = await arranger.enableSpacer(keeping: all)
+        spacer.isEnabled = wasEnabled
+        if case .failure = wide { check("enable the spacer keeping all six (run up to the notch)", false, detail: "failed") }
+        await settle()
+        checkRun(expect: [spacerID] + all, label: "run reaching the notch is spacer, T1–T6")
+        await checkGlassAway(order: [spacerID] + all, label: "T1–T6")
 
         // Opening a hidden item that shows a popover ("show it for a moment") isn't covered here: a test popover
         // anchored to one of Whisky's own items stayed on screen after close() and orderOut (2026-10-15), so the
@@ -196,7 +210,7 @@ final class SpacerSpike {
     private func tearDown(hadSpacer: Bool, before: Snapshot) async {
         releaseGlass()
         for entry in testItems { NSStatusBar.system.removeStatusItem(entry.item) }
-        for index in 1...4 {
+        for index in 1...6 {
             UserDefaults.standard.removeObject(forKey: "NSStatusItem Preferred Position WhiskyTest\(index)")
             UserDefaults.standard.removeObject(forKey: "NSStatusItem Visible WhiskyTest\(index)")
         }
