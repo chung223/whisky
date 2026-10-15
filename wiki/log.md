@@ -115,3 +115,8 @@
 - Whisky Bar 從瀏海倒出來（滑過提示、點了展開，瓶頸造型不遮選單列）；玻璃小面板給沒有瀏海的螢幕；排列視窗改成選單列預覽；設定視窗整理。
 - 實測：全螢幕時選單列項目全部不在畫面上（新增保護）；溢出的選單列最左項目在螢幕外，送走失敗（改目標）；重排改成每步重算。
 - 更新 concepts/platform-verification.md、projects/notch-apps.md、synthesis/roadmap.md、synthesis/whisky-architecture.md。
+
+## [2026-10-15] query | 實際使用回饋：iStat 下拉面板、常用、圖示快捷鍵
+- 記錄顯示使用者從瀏海面板打開 Keysmith、DigUp、Presence（menu mirroring）都正常；iStat 的一個項目「暫時放回再點」兩次都判定沒打開。
+- 【推論】下拉面板不是由項目自己的程序開的，或出現得比 0.6 秒慢。改成認選單列附近新出現的任何視窗（PopupDetection），等久一點，認不出時記下新視窗細節。
+- 新增：Whisky Bar「常用」（frecency，一週減半）、圖示快捷鍵（設定 › 圖示快捷鍵，或 Whisky Bar 右鍵）。

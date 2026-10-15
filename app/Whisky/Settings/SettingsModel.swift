@@ -24,6 +24,18 @@ final class SettingsModel {
         var openLoginItems: () -> Void = {}
         var revealLog: () -> Void = {}
         var refresh: () -> Void = {}
+        /// Assigns (or with nil, removes) an item's shortcut. Returns a problem to show, or nil.
+        var setItemHotKey: (_ key: String, _ name: String, HotKeyShortcut?) -> String? = { _, _, _ in nil }
+    }
+
+    /// An item with (or about to get) its own shortcut.
+    struct ItemShortcut: Identifiable, Equatable {
+        let key: String
+        let name: String
+        let icon: NSImage?
+        var shortcut: HotKeyShortcut?
+
+        var id: String { key }
     }
 
     var hotKey: HotKeyShortcut?
@@ -41,6 +53,12 @@ final class SettingsModel {
     var savedLayoutCount: Int?
     var hasAccessibility = false
     var hasScreenRecording = false
+    var itemShortcuts: [ItemShortcut] = []
+    /// Items in the menu bar now, for "Add".
+    var assignableItems: [ItemShortcut] = []
+    /// Rows added but not recorded yet (kept across refreshes).
+    var pendingItemKeys: [String] = []
+    var itemShortcutProblem: String?
     let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
 
     @ObservationIgnored var actions = Actions()

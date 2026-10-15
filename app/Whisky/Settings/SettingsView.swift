@@ -62,6 +62,51 @@ struct SettingsView: View {
                 }
             }
 
+            Section {
+                ForEach(model.itemShortcuts) { row in
+                    LabeledContent {
+                        ShortcutRecorder(
+                            shortcut: row.shortcut,
+                            onChange: { shortcut in
+                                model.itemShortcutProblem = model.actions.setItemHotKey(row.key, row.name, shortcut)
+                                if shortcut == nil || model.itemShortcutProblem == nil {
+                                    model.pendingItemKeys.removeAll { $0 == row.key }
+                                }
+                                model.actions.refresh()
+                            },
+                            onRecordingChange: { model.actions.setRecordingHotKey($0) },
+                            offersDefault: false
+                        )
+                    } label: {
+                        HStack(spacing: 8) {
+                            if let icon = row.icon {
+                                Image(nsImage: icon).resizable().frame(width: 18, height: 18)
+                            }
+                            Text(row.name)
+                        }
+                    }
+                }
+                if let problem = model.itemShortcutProblem {
+                    note(problem, warning: true)
+                }
+                Menu("新增圖示快捷鍵…") {
+                    ForEach(model.assignableItems.filter { item in !model.itemShortcuts.contains { $0.key == item.key } }) { item in
+                        Button(item.name) {
+                            model.pendingItemKeys.append(item.key)
+                            model.actions.refresh()
+                        }
+                    }
+                }
+                .menuStyle(.button)
+                .fixedSize()
+            } header: {
+                Text("圖示快捷鍵")
+            } footer: {
+                Text("按下就直接打開那個圖示，不用先開 Whisky Bar。也可以在 Whisky Bar 對圖示按右鍵指定。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             Section("選單列") {
                 Toggle(isOn: Binding(
                     get: { model.spacerOn },
@@ -111,8 +156,8 @@ struct SettingsView: View {
 
         }
         .formStyle(.grouped)
-        .frame(width: 520)
-        .fixedSize(horizontal: false, vertical: true)
+        // Fits a 14-inch screen; the rest scrolls.
+        .frame(width: 520, height: 740)
     }
 
     private func binding(_ keyPath: ReferenceWritableKeyPath<SettingsModel, Bool>, _ set: @escaping (Bool) -> Void) -> Binding<Bool> {

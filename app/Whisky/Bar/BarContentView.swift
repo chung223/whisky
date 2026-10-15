@@ -22,6 +22,7 @@ struct BarActions {
     var requestAccessibility: () -> Void = {}
     var restoreLayout: () -> Void = {}
     var keepLayout: () -> Void = {}
+    var assignShortcut: (BarItem) -> Void = { _ in }
 }
 
 /// Whisky Bar's content: a search line, the hidden items and the ones not in the menu bar (drawn the way the menu bar
@@ -243,6 +244,8 @@ private struct BarCell: View {
             }
             Button("直接點按") { actions.press(item) }
             Button("切換到「\(item.scanned.appName)」") { actions.activateApp(item) }
+            Divider()
+            Button("指定快捷鍵…") { actions.assignShortcut(item) }
             if item.isOff {
                 Divider()
                 Text("這個圖示不在選單列上，要先到「系統設定 › 選單列」打開它")

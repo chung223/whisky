@@ -25,6 +25,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var spike: SpacerSpike?
     private var hotKey: GlobalHotKey?
     private var hotKeyFailed = false
+    private var itemHotKeys: [String: GlobalHotKey] = [:]
     private var diagnostics: Diagnostics?
     private var memory: LayoutMemory!
     private let settings = SettingsController()
@@ -63,10 +64,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         bar.onArranged = { [weak self] in await self?.memory.remember() }
         bar.onRestoreLayout = { [weak self] in self?.restoreLayout() }
         bar.onKeepLayout = { [weak self] in Task { await self?.memory.remember() } }
+        bar.onAssignShortcut = { [weak self] key, _ in
+            guard let self else { return }
+            if !self.settings.model.pendingItemKeys.contains(key) { self.settings.model.pendingItemKeys.append(key) }
+            self.settings.show()
+        }
         diagnostics = Diagnostics(model: model)
         spacer.onClick = { [weak self] in self?.bar.toggle() }
         spike = SpacerSpike(arranger: arranger, spacer: spacer)
         registerHotKey()
+        registerItemHotKeys()
         wireSettings()
         memory.start()
         bar.start()
@@ -174,6 +181,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.shortcutDisplay = hotKeyFailed ? nil : shortcut.display
     }
 
+    private func registerItemHotKeys() {
+        itemHotKeys.values.forEach { $0.unregister() }
+        itemHotKeys = [:]
+        for (key, assignment) in ItemHotKeyPreference.all {
+            itemHotKeys[key] = GlobalHotKey(assignment.shortcut) { [weak self] in self?.bar.openItem(key: key) }
+        }
+    }
+
+    /// Assigns or removes an item's shortcut; refuses one already in use. Returns a problem to show, or nil.
+    private func setItemHotKey(key: String, name: String, shortcut: HotKeyShortcut?) -> String? {
+        var all = ItemHotKeyPreference.all
+        if let shortcut {
+            if shortcut == HotKeyPreference.shortcut { return "\(shortcut.display) 已經用來打開 Whisky Bar。" }
+            if let other = all.first(where: { $0.key != key && $0.value.shortcut == shortcut }) {
+                return "\(shortcut.display) 已經指定給「\(other.value.name)」。"
+            }
+            all[key] = ItemHotKeyPreference.Assignment(shortcut: shortcut, name: name)
+        } else {
+            all[key] = nil
+        }
+        ItemHotKeyPreference.all = all
+        registerItemHotKeys()
+        if let shortcut, itemHotKeys[key] == nil {
+            return "\(shortcut.display) 被別的 App 用掉了，換一組試試。"
+        }
+        Log.write("item shortcut: \(key) → \(shortcut?.display ?? "none")")
+        return nil
+    }
+
     // MARK: - Settings
 
     @objc private func showSettings() { settings.show() }
@@ -187,11 +223,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 Log.write("hotkey: \(shortcut?.display ?? "none")")
             },
             setRecordingHotKey: { [weak self] recording in
+                guard let self else { return }
                 if recording {
-                    self?.hotKey?.unregister()
-                    self?.hotKey = nil
+                    // Every shortcut is released while recording, so pressing one records it instead of firing.
+                    self.hotKey?.unregister()
+                    self.hotKey = nil
+                    self.itemHotKeys.values.forEach { $0.unregister() }
+                    self.itemHotKeys = [:]
                 } else {
-                    self?.registerHotKey()
+                    self.registerHotKey()
+                    self.registerItemHotKeys()
                 }
             },
             setLaunchAtLogin: { LoginItem.setEnabled($0) },
@@ -208,7 +249,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             requestScreenRecording: { Permissions.requestScreenRecording() },
             openLoginItems: { LoginItem.openSettings() },
             revealLog: { [weak self] in self?.revealLog() },
-            refresh: { [weak self] in self?.refreshSettings() }
+            refresh: { [weak self] in self?.refreshSettings() },
+            setItemHotKey: { [weak self] key, name, shortcut in self?.setItemHotKey(key: key, name: name, shortcut: shortcut) }
         )
     }
 
@@ -226,6 +268,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.savedLayoutCount = memory.saved?.count
         model.hasAccessibility = permissions.isAccessibilityTrusted
         model.hasScreenRecording = Permissions.hasScreenRecording
+
+        // Items with their own shortcut, then rows just added; names from the menu bar when the app is running.
+        var icons: [pid_t: NSImage] = [:]
+        func row(_ item: ScannedItem, shortcut: HotKeyShortcut?) -> SettingsModel.ItemShortcut {
+            let icon = icons[item.pid] ?? NSRunningApplication(processIdentifier: item.pid)?.icon
+            icons[item.pid] = icon
+            let name = ItemNaming.displayName(appName: item.appName, label: item.label,
+                                              systemName: SystemItemSymbols.name(key: item.key, bundleID: item.bundleID))
+            return SettingsModel.ItemShortcut(key: item.key, name: name, icon: icon, shortcut: shortcut)
+        }
+        let scan = self.model.lastScan.filter { !BarModel.isSystemOwned($0) }
+        let assigned = ItemHotKeyPreference.all
+        var rows = assigned.map { key, assignment in
+            scan.first { $0.key == key }.map { row($0, shortcut: assignment.shortcut) }
+                ?? SettingsModel.ItemShortcut(key: key, name: assignment.name, icon: nil, shortcut: assignment.shortcut)
+        }
+        .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        for key in model.pendingItemKeys where assigned[key] == nil {
+            if let item = scan.first(where: { $0.key == key }) { rows.append(row(item, shortcut: nil)) }
+        }
+        if rows != model.itemShortcuts { model.itemShortcuts = rows }
+        let assignable = scan.map { row($0, shortcut: nil) }.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        if assignable.map(\.key) != model.assignableItems.map(\.key) { model.assignableItems = assignable }
     }
 
     /// Turns the spacer on or off and takes the result as the arrangement. Returns a problem to show, or nil.

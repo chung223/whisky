@@ -7,6 +7,8 @@ struct ShortcutRecorder: View {
     let shortcut: HotKeyShortcut?
     let onChange: (HotKeyShortcut?) -> Void
     let onRecordingChange: (Bool) -> Void
+    /// Offer "Restore" to ⌃⌥⌘W (Whisky Bar's own shortcut only).
+    var offersDefault = true
 
     @State private var isRecording = false
     @State private var held: NSEvent.ModifierFlags = []
@@ -30,7 +32,7 @@ struct ShortcutRecorder: View {
                     .foregroundStyle(.secondary)
                     .help("不要快捷鍵")
                 }
-                if !isRecording, shortcut != .default {
+                if offersDefault, !isRecording, shortcut != .default {
                     Button("還原") { onChange(.default) }
                         .buttonStyle(.borderless)
                         .help("還原成 \(HotKeyShortcut.default.display)")

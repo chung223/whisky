@@ -11,6 +11,7 @@ final class WhiskyBarController {
     /// Called after the user put an item on the menu bar from here.
     var onArranged: (() async -> Void)?
     var onKeepLayout: (() -> Void)?
+    var onAssignShortcut: ((_ key: String, _ name: String) -> Void)?
 
     private static let notchKey = "opensFromNotch"
 
@@ -53,6 +54,34 @@ final class WhiskyBarController {
     var isOpen: Bool { presenter?.isOpen == true }
 
     func showNotchPeekForTesting() { notch.showPeekForTesting() }
+
+    /// Opens one item straight away (its own shortcut): its mirrored menu drops from the menu bar under the item when
+    /// it is drawn, else under the notch (or the pointer).
+    func openItem(key: String) {
+        Task {
+            await model.refresh(captureGlyphs: false)
+            guard let item = model.lastScan.first(where: { $0.key == key }) else {
+                Log.write("item shortcut: \(key) isn't in the menu bar now")
+                NSSound.beep()
+                return
+            }
+            model.recordUse(key)
+            close()
+            let screen = NSScreen.screens.first ?? NSScreen.main
+            let barHeight = (screen?.safeAreaInsets.top ?? 0) > 0 ? screen?.safeAreaInsets.top ?? 0 : NSStatusBar.system.thickness
+            let x: CGFloat
+            if item.placement == .shown {
+                x = item.frame.minX
+            } else if opensFromNotch, let notch = NotchGeometry.current() {
+                x = notch.rect.midX - 100
+            } else {
+                x = NSEvent.mouseLocation.x
+            }
+            let location = NSPoint(x: x, y: (screen?.frame.maxY ?? 0) - barHeight - 2)
+            Log.write("item shortcut: open \(key)")
+            activator.open(item, at: location) {}
+        }
+    }
 
     func toggle() {
         isOpen ? close() : open()
@@ -101,7 +130,11 @@ final class WhiskyBarController {
                 self?.close()
                 self?.onRestoreLayout?()
             },
-            keepLayout: { [weak self] in self?.onKeepLayout?() }
+            keepLayout: { [weak self] in self?.onKeepLayout?() },
+            assignShortcut: { [weak self] item in
+                self?.close()
+                self?.onAssignShortcut?(item.scanned.key, item.displayName)
+            }
         )
     }
 
