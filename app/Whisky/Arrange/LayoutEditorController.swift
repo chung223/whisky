@@ -9,6 +9,8 @@ final class LayoutEditorController: NSObject, NSWindowDelegate {
     private let arranger: Arranger
     private let draft = LayoutDraft()
     private var window: NSWindow?
+    /// Whether the glass lives in the notch (the preview shows it there).
+    var isGlassInNotch: () -> Bool = { false }
     /// Called after an apply went through, to take the new run as the arrangement.
     var onApplied: (() async -> Void)?
 
@@ -50,6 +52,7 @@ final class LayoutEditorController: NSObject, NSWindowDelegate {
                    menuBarShown: arranger.isMenuBarShown())
         draft.status = .idle
         draft.note = nil
+        draft.glassInNotch = isGlassInNotch()
         await captureGlyphs()
     }
 

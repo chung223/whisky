@@ -28,6 +28,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var itemHotKeys: [String: GlobalHotKey] = [:]
     private var diagnostics: Diagnostics?
     private var memory: LayoutMemory!
+    private var watcher: ChangeWatcher!
     private let settings = SettingsController()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -53,6 +54,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         arranger.spacer = spacer
         memory = LayoutMemory(model: model, arranger: arranger)
         editor = LayoutEditorController(model: model, arranger: arranger)
+        editor.isGlassInNotch = { [weak self] in self?.arranger.revealAnchor != nil }
         editor.onApplied = { [weak self] in await self?.memory.remember() }
         bar = WhiskyBarController(model: model, permissions: permissions, arranger: arranger) { [weak self] in self?.statusItem.buttonFrame }
         statusItem.onToggleBar = { [weak self] in self?.bar.toggle() }
@@ -80,6 +82,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         bar.onScreensChange = { [weak self] in self?.applyGlassPlacement() }
         bar.start()
         applyGlassPlacement()
+        watcher = ChangeWatcher(model: model, arranger: arranger)
+        watcher.canAnnounce = { [weak self] in self?.bar.canAnnounce ?? false }
+        watcher.onChange = { [weak self] item in self?.bar.announce(item) }
+        watcher.start()
 
         if permissions.isAccessibilityTrusted {
             Task {
@@ -247,6 +253,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.applyGlassPlacement()
             },
             setGlassInNotch: { [weak self] on in self?.glassInNotch = on },
+            setAnnouncesChanges: { [weak self] on in self?.watcher.isEnabled = on },
             setShowsRealImages: { [weak self] on in
                 self?.model.showsRealImages = on
                 if on, !Permissions.hasScreenRecording { Permissions.requestScreenRecording() }
@@ -274,6 +281,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.hasNotch = NotchPresenter.isAvailable
         model.opensFromNotch = bar.opensFromNotch
         model.glassInNotch = glassInNotch
+        model.announcesChanges = watcher.isEnabled
         if !model.spacerBusy { model.spacerOn = spacer.isActive }
         model.watchesLayout = memory.isWatching
         model.savedLayoutCount = memory.saved?.count
@@ -398,6 +406,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             case ("arrange", _): editor.show()
             case ("settings", _): settings.show()
             case ("notch-peek", _): bar.showNotchPeekForTesting()
+            case ("notch-alert", _):
+                // Testing: points out the first hidden item as if it had changed.
+                if let item = model.items.first(where: { !$0.isOff }) { bar.announce(item) }
             case ("glass", _):
                 // Testing: whisky://glass?shown=0 or 1 hides or shows the glass in the menu bar.
                 statusItem.setShown(url.query()?.contains("shown=1") == true)

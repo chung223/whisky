@@ -62,6 +62,18 @@ final class WhiskyBarController {
 
     func showNotchPeekForTesting() { notch.showPeekForTesting() }
 
+    /// Whether a changed item can be pointed out at the notch now.
+    var canAnnounce: Bool { opensFromNotch && NotchPresenter.isAvailable && !isOpen }
+
+    /// A hidden item changed: show it under the notch; a click opens it.
+    func announce(_ item: BarItem) {
+        guard canAnnounce else { return }
+        let key = item.scanned.key
+        notch.announce(NotchState.Alert(name: item.displayName, glyph: item.glyph, symbol: item.symbol, icon: item.appIcon)) { [weak self] in
+            self?.openItem(key: key)
+        }
+    }
+
     /// Opens one item straight away (its own shortcut): its mirrored menu drops from the menu bar under the item when
     /// it is drawn, else under the notch (or the pointer).
     func openItem(key: String) {

@@ -109,6 +109,27 @@ final class NotchPresenter: BarPresenter {
         setPhase(.closed)
     }
 
+    /// Points out a hidden item that changed: it shows under the notch for five seconds (longer while the pointer is
+    /// on it); a click opens it.
+    func announce(_ alert: NotchState.Alert, action: @escaping () -> Void) {
+        guard geometry != nil, state.phase == .closed else { return }
+        hoverTask?.cancel()
+        state.alert = alert
+        alertAction = action
+        setPhase(.alert)
+        hoverTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(5))
+            while let self, self.state.phase == .alert, self.isPointerInside {
+                try? await Task.sleep(for: .milliseconds(250))
+            }
+            guard let self, self.state.phase == .alert else { return }
+            self.alertAction = nil
+            self.setPhase(.closed)
+        }
+    }
+
+    private var alertAction: (() -> Void)?
+
     /// Testing: shows the hover state without moving the pointer (`whisky://notch?phase=peek`).
     func showPeekForTesting() {
         state.hiddenCount = model.items.filter { !$0.isOff }.count
@@ -160,6 +181,13 @@ final class NotchPresenter: BarPresenter {
 
     private func clicked() {
         guard state.phase != .open else { return }
+        if state.phase == .alert, let action = alertAction {
+            alertAction = nil
+            hoverTask?.cancel()
+            setPhase(.closed)
+            action()
+            return
+        }
         onOpenRequest()
     }
 
@@ -245,7 +273,15 @@ final class NotchPresenter: BarPresenter {
 @MainActor
 @Observable
 final class NotchState {
-    enum Phase { case closed, peek, open }
+    enum Phase { case closed, peek, alert, open }
+
+    /// A hidden item that just changed, shown under the notch for a few seconds.
+    struct Alert {
+        let name: String
+        let glyph: Glyph?
+        let symbol: String?
+        let icon: NSImage?
+    }
 
     var phase: Phase = .closed
     var notchSize = CGSize(width: 185, height: 32)
@@ -254,11 +290,13 @@ final class NotchState {
     var hiddenCount = 0
     /// When the hover state began: the glass in it pours from then.
     var pourStart = Date.distantPast
+    var alert: Alert?
 
     var bottomRadius: CGFloat {
         switch phase {
         case .closed: 10
         case .peek: 12
+        case .alert: 14
         case .open: 22
         }
     }
@@ -272,6 +310,8 @@ final class NotchState {
         case .peek:
             // The notch, a little taller.
             CGSize(width: notchSize.width, height: notchSize.height + 22)
+        case .alert:
+            CGSize(width: max(notchSize.width + 90, 290), height: notchSize.height + 30)
         case .open:
             CGSize(width: max(contentSize.width + 16, notchSize.width + 40),
                    height: notchSize.height + contentSize.height + 8)
@@ -300,10 +340,31 @@ struct NotchRootView: View {
                     Text("\(state.hiddenCount)")
                         .font(.system(size: 11, weight: .semibold))
                         .monospacedDigit()
+                    if model.layoutDrift != nil {
+                        // The layout drifted: Whisky Bar says what and offers to put it right.
+                        Circle().fill(.orange).frame(width: 6, height: 6)
+                    }
                 }
                 .foregroundStyle(.white)
                 .frame(height: 20)
                 .padding(.top, state.notchSize.height - 1)
+                .transition(.opacity)
+            }
+            if state.phase == .alert, let alert = state.alert {
+                HStack(spacing: 7) {
+                    ItemImage(glyph: alert.glyph, symbol: alert.symbol, appIcon: alert.icon, onDark: true)
+                    Text(alert.name)
+                        .font(.system(size: 12, weight: .medium))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Text("有變化")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.white.opacity(0.5))
+                }
+                .foregroundStyle(.white)
+                .frame(height: 26)
+                .frame(maxWidth: state.shapeSize(for: .alert).width - 28)
+                .padding(.top, state.notchSize.height)
                 .transition(.opacity)
             }
             if state.phase == .open {

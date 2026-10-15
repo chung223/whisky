@@ -40,6 +40,8 @@ final class LayoutDraft {
     private(set) var capacity: CGFloat = 0
     var status: Status = .idle
     var note: String?
+    /// The glass lives in the notch: the preview draws it there instead of in the menu bar.
+    var glassInNotch = false
     /// The menu bar was hidden when this was read (a full-screen app): every item looks hidden, so nothing can be
     /// arranged until it shows again.
     private(set) var isMenuBarHidden = false

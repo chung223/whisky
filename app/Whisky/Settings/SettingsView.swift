@@ -61,6 +61,13 @@ struct SettingsView: View {
                          : "要先打開下面的「只顯示排好的圖示」：沒有它的話，酒杯一離開，macOS 就會重排瀏海旁的圖示。")
                 }
                 .disabled(!model.hasNotch || !model.opensFromNotch || !model.spacerOn)
+                Toggle(isOn: binding(\.announcesChanges, model.actions.setAnnouncesChanges)) {
+                    Text("藏起來的圖示有變化時提醒我")
+                    Text(model.hasScreenRecording
+                         ? "例如出現通知標記：瀏海會長出來幾秒顯示它，點一下打開。一直在變的數字（CPU、網速）不算。"
+                         : "需要「螢幕錄製」權限。")
+                }
+                .disabled(!model.hasNotch || !model.opensFromNotch || !model.hasScreenRecording)
                 Toggle(isOn: binding(\.showsRealImages, model.actions.setShowsRealImages)) {
                     Text("顯示圖示的真實圖案")
                     Text(model.hasScreenRecording

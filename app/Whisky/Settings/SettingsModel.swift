@@ -14,6 +14,7 @@ final class SettingsModel {
         var setLaunchAtLogin: (Bool) -> Void = { _ in }
         var setOpensFromNotch: (Bool) -> Void = { _ in }
         var setGlassInNotch: (Bool) -> Void = { _ in }
+        var setAnnouncesChanges: (Bool) -> Void = { _ in }
         var setShowsRealImages: (Bool) -> Void = { _ in }
         /// Returns a problem to show, or nil.
         var setSpacer: (Bool) async -> String? = { _ in nil }
@@ -47,6 +48,7 @@ final class SettingsModel {
     var showsRealImages = false
     var opensFromNotch = true
     var glassInNotch = false
+    var announcesChanges = true
     var hasNotch = false
     var spacerOn = false
     var spacerBusy = false

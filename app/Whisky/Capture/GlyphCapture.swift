@@ -10,6 +10,8 @@ struct Glyph {
     /// panel's colours the way the menu bar draws template images. nil for coloured glyphs, which keep their colours.
     let white: NSImage?
     let black: NSImage?
+    /// A small grey thumbnail, for noticing when the item's look changes (`ChangeTracker`).
+    let fingerprint: [UInt8]
 
     var isMonochrome: Bool { white != nil }
 }
@@ -19,6 +21,7 @@ struct Glyph {
 /// Items pushed entirely off the display can't be captured (SCK returns -3811).
 @MainActor
 enum GlyphCapture {
+    private static var loggedFailures: Set<UInt32> = []
     static func capture(_ requests: [(id: String, windowID: UInt32)]) async -> [String: Glyph] {
         guard Permissions.hasScreenRecording, !requests.isEmpty else { return [:] }
         let content: SCShareableContent
@@ -48,7 +51,10 @@ enum GlyphCapture {
                 )
                 if let glyph = makeGlyph(image, scale: scale) { glyphs[request.id] = glyph }
             } catch {
-                Log.write("glyph capture: window \(request.windowID) failed: \(error.localizedDescription)")
+                // Once per window: the change watcher asks again every half minute.
+                if loggedFailures.insert(request.windowID).inserted {
+                    Log.write("glyph capture: window \(request.windowID) failed: \(error.localizedDescription)")
+                }
             }
         }
         return glyphs
@@ -65,7 +71,8 @@ enum GlyphCapture {
         // blend, which this keeps out of the way.
         let monochrome = GlyphAnalysis.isMonochrome(cropped)
         return Glyph(image: image, isLight: luminance > 0.6,
-                     white: monochrome ? tinted(image, .white) : nil, black: monochrome ? tinted(image, .black) : nil)
+                     white: monochrome ? tinted(image, .white) : nil, black: monochrome ? tinted(image, .black) : nil,
+                     fingerprint: GlyphAnalysis.fingerprint(of: cropped))
     }
 
     private static func tinted(_ image: NSImage, _ colour: NSColor) -> NSImage {

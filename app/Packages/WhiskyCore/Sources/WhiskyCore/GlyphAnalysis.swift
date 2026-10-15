@@ -77,6 +77,28 @@ public enum GlyphAnalysis {
         return monochrome
     }
 
+    /// A 16 × 16 grey thumbnail (alpha-weighted luminance), for telling whether an item's look changed.
+    public static func fingerprint(of image: CGImage) -> [UInt8] {
+        let size = 16
+        var result = [UInt8](repeating: 0, count: size * size)
+        withRGBA(image, width: size, height: size) { pixels in
+            for index in 0..<(size * size) {
+                let i = index * 4
+                // Premultiplied, so this already weighs colour by coverage.
+                let luminance = 0.2126 * Double(pixels[i]) + 0.7152 * Double(pixels[i + 1]) + 0.0722 * Double(pixels[i + 2])
+                result[index] = UInt8(min(255, (luminance + Double(pixels[i + 3])) / 2))
+            }
+        }
+        return result
+    }
+
+    /// How different two fingerprints are, 0 (same) to 1.
+    public static func difference(_ a: [UInt8], _ b: [UInt8]) -> Double {
+        guard a.count == b.count, !a.isEmpty else { return 1 }
+        let total = zip(a, b).reduce(0) { $0 + abs(Int($1.0) - Int($1.1)) }
+        return Double(total) / Double(a.count * 255)
+    }
+
     /// Draws `image` into an RGBA buffer of the given size; row 0 of the buffer is the image's top row.
     private static func withRGBA(_ image: CGImage, width: Int, height: Int, _ body: (UnsafeBufferPointer<UInt8>) -> Void) {
         var buffer = [UInt8](repeating: 0, count: width * height * 4)

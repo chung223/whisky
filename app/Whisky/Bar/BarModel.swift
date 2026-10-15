@@ -170,6 +170,16 @@ final class BarModel {
         }
     }
 
+    /// Fresh images captured elsewhere (the change watcher): shown at once, and kept for later scans.
+    func store(_ glyphs: [String: Glyph]) {
+        guard showsRealImages, !glyphs.isEmpty else { return }
+        for index in items.indices {
+            guard let glyph = glyphs[items[index].id] else { continue }
+            items[index].glyph = glyph
+            glyphCache[items[index].id] = (items[index].scanned.frame.width, glyph)
+        }
+    }
+
     private func captureMissingGlyphs() async {
         let requests = items.compactMap { item -> (id: String, windowID: UInt32)? in
             guard item.glyph == nil, let windowID = item.scanned.windowID else { return nil }

@@ -91,7 +91,7 @@ struct LayoutEditorView: View {
                     endSlot
                 }
                 .padding(.horizontal, 6)
-                whiskyGlass
+                if !draft.glassInNotch { whiskyGlass }
                 HStack(spacing: 2) {
                     ForEach(draft.fixed) { entry in
                         ItemImage(glyph: draft.glyphs[entry.id], symbol: entry.symbol, appIcon: entry.icon, onDark: true)
@@ -116,10 +116,19 @@ struct LayoutEditorView: View {
             .fill(.black)
             .frame(width: 120, height: 34)
             .overlay(alignment: .bottom) {
-                Text("瀏海")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.white.opacity(0.3))
-                    .padding(.bottom, 4)
+                HStack(spacing: 4) {
+                    if draft.glassInNotch {
+                        Image(nsImage: GlassIcon.image(fill: 1))
+                            .renderingMode(.template)
+                            .resizable()
+                            .frame(width: 12, height: 12)
+                    }
+                    Text("瀏海")
+                        .font(.system(size: 10))
+                }
+                .foregroundStyle(.white.opacity(draft.glassInNotch ? 0.55 : 0.3))
+                .padding(.bottom, 4)
+                .help(draft.glassInNotch ? "酒杯住在瀏海裡：排好的圖示從控制中心左邊往左排" : "")
             }
     }
 
