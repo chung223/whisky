@@ -79,6 +79,8 @@ final class ItemActivator {
 
         guard case .success = await arranger.pinWindow(windowID, label: "show \(item.id) for a moment") else {
             Log.write("open \(item.id): couldn't bring it out; pressing in place")
+            // It may have moved but landed a slot off: don't leave it in the user's run.
+            if arranger.isInRun(windowID) { _ = await arranger.sendAwayWindow(windowID, label: "put \(item.id) back") }
             await pressInPlace(item)
             return
         }

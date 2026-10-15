@@ -30,18 +30,36 @@ final class Arranger {
 
     // MARK: - The glass, on demand
 
-    /// Makes sure Whisky's glass is in the menu bar until the matching `releaseAnchor`. Holds nest.
+    /// Whether an operation needs the glass in the menu bar right now (it must not be taken away meanwhile).
+    var isHoldingAnchor: Bool { anchorHolds > 0 }
+    private var revealing: Task<Void, Never>?
+    /// The item right of the glass when it last left the menu bar: while it lives in the notch, the user's part of
+    /// the menu bar ends there.
+    private static let neighbourKey = "glassRightNeighbour"
+
+    /// Makes sure Whisky's glass is in the menu bar until the matching `releaseAnchor`. Holds nest; a hold that
+    /// arrives while the glass is still coming waits for it too.
     func holdAnchor() async {
         anchorHolds += 1
-        guard anchorHolds == 1, let revealAnchor else { return }
-        revealAnchor()
-        // Wait for its window to be listed and drawn, then for the menu bar to finish making room.
-        let deadline = ContinuousClock.now + .milliseconds(1500)
-        while ContinuousClock.now < deadline {
-            if let id = anchorWindowID(), WindowList.statusWindows().first(where: { $0.id == id })?.isOnscreen == true { break }
-            try? await Task.sleep(for: .milliseconds(50))
+        guard let revealAnchor else { return }
+        if let revealing {
+            await revealing.value
+            return
         }
-        try? await Task.sleep(for: .milliseconds(350))
+        guard anchorWindowID() == nil else { return }
+        let task = Task { @MainActor [weak self] in
+            revealAnchor()
+            // Wait for its window to be listed and drawn, then for the menu bar to finish making room.
+            let deadline = ContinuousClock.now + .milliseconds(1500)
+            while ContinuousClock.now < deadline {
+                if let self, let id = self.anchorWindowID(), WindowList.statusWindows().first(where: { $0.id == id })?.isOnscreen == true { break }
+                try? await Task.sleep(for: .milliseconds(50))
+            }
+            try? await Task.sleep(for: .milliseconds(350))
+        }
+        revealing = task
+        await task.value
+        revealing = nil
     }
 
     func releaseAnchor() {
@@ -50,9 +68,20 @@ final class Arranger {
         // A moment's grace, so back-to-back operations don't make it flicker.
         Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(300))
-            guard let self, self.anchorHolds == 0 else { return }
-            self.concealAnchor?()
+            guard let self, self.anchorHolds == 0, self.revealing == nil, let conceal = self.concealAnchor else { return }
+            self.rememberGlassNeighbour()
+            conceal()
         }
+    }
+
+    /// Notes which item sits right of the glass, before it leaves the menu bar.
+    func rememberGlassNeighbour() {
+        guard let anchor = anchorWindowFrame() else { return }
+        let frames = WindowList.statusFrames(inMenuBarRowOnly: true)
+        let keys = Dictionary(model.lastScan.compactMap { item in item.windowID.map { ($0, item.key) } }, uniquingKeysWith: { first, _ in first })
+        guard let neighbour = frames.filter({ $0.value.minX >= anchor.maxX - 1 }).min(by: { $0.value.minX < $1.value.minX }),
+              let key = keys[neighbour.key] else { return }
+        UserDefaults.standard.set(key, forKey: Self.neighbourKey)
     }
 
     private func withAnchor<T>(_ body: () async -> T) async -> T {
@@ -141,7 +170,34 @@ final class Arranger {
 
     /// Makes `visible` (left to right) the run next to Whisky's icon, with the spacer at its left end when there is one.
     func apply(visible: [ScannedItem], progress: @escaping @MainActor (Int, Int) -> Void) async -> Result<Int, ItemMover.Failure> {
-        await rebuild(wanted: visible.compactMap(\.windowID), progress: progress)
+        let wanted = visible.compactMap(\.windowID)
+        // A collapsed spacer can sit at the notch boundary, where macOS reshuffles items: place it afresh first.
+        if let spacer, spacer.isActive, !spacer.isExpanded { return await placeRun(wanted, progress: progress) }
+        return await rebuild(wanted: wanted, progress: progress)
+    }
+
+    /// With the spacer: makes `wanted` the run the reliable way. The spacer goes next to the glass while 1 pt wide (in
+    /// the open part of the menu bar), is expanded so everything else leaves the screen, then the run is brought back
+    /// in order (re-pins only). Pinning the run first left the 1 pt spacer at the notch boundary, where macOS
+    /// reshuffles items: it ended up far left with dozens of hidden items in the run (measured 2026-10-16).
+    func placeRun(_ wanted: [UInt32], progress: @escaping @MainActor (Int, Int) -> Void = { _, _ in }) async -> Result<Int, ItemMover.Failure> {
+        await holdAnchor()
+        defer { releaseAnchor() }
+        guard let spacer, let spacerID = spacer.currentWindowID() else { return await rebuild(wanted: wanted, progress: progress) }
+        if spacer.isExpanded {
+            // A 5,000 pt spacer can't be dragged.
+            spacer.setExpanded(false)
+            try? await Task.sleep(for: .milliseconds(400))
+        }
+        if case .failure(let failure) = await pinWindow(spacerID, label: "spacer") { return .failure(failure) }
+        spacer.setExpanded(true)
+        try? await Task.sleep(for: .milliseconds(500))
+        return await rebuild(wanted: wanted, allowSendAway: false, progress: progress)
+    }
+
+    /// Whether the item is in the user's run now (between the spacer, or the hidden ones, and the glass).
+    func isInRun(_ id: UInt32) -> Bool {
+        currentRun(spacerID: spacerID).contains(id)
     }
 
     /// The moves `apply` would make (nil when Whisky's icon can't be found).
@@ -165,16 +221,7 @@ final class Arranger {
         guard spacer.isActive else { return failed("enable spacer", .itemNotFound).map { 0 } }
         spacer.isEnabled = true
         Log.write("arrange: enable spacer, keeping \(shown.count) items visible")
-        // 1. The spacer goes next to the glass while it is 1 pt wide, in the open part of the menu bar.
-        // 2. Expanded right away, it pushes everything else off the screen. (Pinning the run first left the 1 pt
-        //    spacer at the notch boundary, where macOS reshuffles items, and it ended up far left with dozens of
-        //    hidden items between it and the glass; measured 2026-10-16.)
-        // 3. The run is brought back from off the screen in order: re-pins only, nothing else is moved.
-        guard let spacerID = spacer.currentWindowID() else { return failed("enable spacer", .itemNotFound).map { 0 } }
-        if case .failure(let failure) = await pinWindow(spacerID, label: "spacer") { return .failure(failure) }
-        spacer.setExpanded(true)
-        try? await Task.sleep(for: .milliseconds(500))
-        return await rebuild(wanted: shown, allowSendAway: false, progress: progress)
+        return await placeRun(shown, progress: progress)
     }
 
     func disableSpacer() {
@@ -216,15 +263,20 @@ final class Arranger {
         // a round leaves the plan as it was, or at a generous cap.
         let cap = first.count * 2 + 20
         var plan = first
-        var previous: RebuildPlanner.Plan?
+        var seen: [RebuildPlanner.Plan] = []
         while !plan.isEmpty {
-            guard plan != previous, done < cap else {
-                Log.write("arrange: rebuild gave up after \(done) moves (\(plan == previous ? "no progress" : "too many moves")); still to do: send away \(plan.sendAway), pin \(plan.pin)")
+            // A plan seen before means the menu bar went round in a circle (near the notch, plans can alternate).
+            guard !seen.contains(plan), done < cap else {
+                Log.write("arrange: rebuild gave up after \(done) moves (\(seen.contains(plan) ? "no progress" : "too many moves")); still to do: send away \(plan.sendAway), pin \(plan.pin)")
                 return .failure(.didNotMove)
             }
-            previous = plan
+            seen.append(plan)
             let steps: [(id: UInt32, sendsAway: Bool)] = plan.sendAway.first.map { [($0, true)] } ?? plan.pin.map { ($0, false) }
             for step in steps {
+                guard done < cap else {
+                    Log.write("arrange: rebuild gave up after \(done) moves (too many moves)")
+                    return .failure(.didNotMove)
+                }
                 progress(done, done + plan.count)
                 if let onlyIDs, !onlyIDs.contains(step.id) {
                     Log.write("arrange: rebuild refused: the next move is \(step.id), which is not allowed here")
@@ -348,6 +400,12 @@ final class Arranger {
     func runBoundary() -> CGRect? {
         if let frame = anchorWindowFrame() { return frame }
         let frames = WindowList.statusFrames(inMenuBarRowOnly: true)
+        // The glass's right neighbour stands in for it (Control Center modules can sit between the glass and
+        // Control Center's own icon, and they are not part of the user's run).
+        if let key = UserDefaults.standard.string(forKey: Self.neighbourKey),
+           let id = model.lastScan.first(where: { $0.key == key })?.windowID, let frame = frames[id] {
+            return frame
+        }
         return fixedRightItemIDs().compactMap { frames[$0] }.min { $0.minX < $1.minX }
     }
 

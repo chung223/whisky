@@ -82,6 +82,9 @@ final class NotchPresenter: BarPresenter {
     private func updateGeometry() {
         geometry = NotchGeometry.current()
         guard let geometry else {
+            if state.phase == .open { onForcedClose?() }
+            state.phase = .closed
+            panel?.allowsKey = false
             panel?.orderOut(nil)
             return
         }
@@ -98,6 +101,7 @@ final class NotchPresenter: BarPresenter {
     func present() {
         guard let panel, geometry != nil else { return }
         hoverTask?.cancel()
+        keyReturnTask?.cancel()
         panel.allowsKey = true
         setPhase(.open)
         panel.makeKey()
@@ -107,7 +111,20 @@ final class NotchPresenter: BarPresenter {
         guard state.phase != .closed else { return }
         panel?.allowsKey = false
         setPhase(.closed)
+        // Hand the keyboard back to the app the user was in once the shape has shrunk; on its own task, so a hover
+        // or an alert right after can't cancel it (`allowsKey = false` alone doesn't give up key status).
+        keyReturnTask?.cancel()
+        keyReturnTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(420))
+            guard let self, !Task.isCancelled, self.state.phase != .open, let panel = self.panel, panel.isKeyWindow else { return }
+            panel.orderOut(nil)
+            panel.orderFrontRegardless()
+        }
     }
+
+    private var keyReturnTask: Task<Void, Never>?
+    /// The notch went away (lid closed, display changed) while Whisky Bar was open in it.
+    var onForcedClose: (() -> Void)?
 
     /// Points out a hidden item that changed: it shows under the notch for five seconds (longer while the pointer is
     /// on it); a click opens it.
@@ -214,11 +231,6 @@ final class NotchPresenter: BarPresenter {
             try? await Task.sleep(for: .milliseconds(420))
             guard let self, !Task.isCancelled else { return }
             self.setWindowSize(self.state.shapeSize(for: self.state.phase))
-            if self.state.phase == .closed, let panel = self.panel, panel.isKeyWindow {
-                // Hand the keyboard back to the app the user was in.
-                panel.orderOut(nil)
-                panel.orderFrontRegardless()
-            }
         }
     }
 

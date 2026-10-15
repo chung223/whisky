@@ -9,6 +9,9 @@ import AppKit
 final class StatusItemController: NSObject {
     static let autosaveName = "WhiskyIcon"
     private static let positionKey = "NSStatusItem Preferred Position \(autosaveName)"
+    /// Whisky's own copy of the glass's place: AppKit deletes its key when the item is removed, and a relaunch would
+    /// then take the glass for new (measured 2026-10-16: position 237 before a relaunch, 0 after).
+    private static let savedPositionKey = "glassPosition"
 
     var onToggleBar: (() -> Void)?
     var menuProvider: (() -> NSMenu)?
@@ -22,9 +25,10 @@ final class StatusItemController: NSObject {
     override init() {
         // On first launch ask for the rightmost third-party slot (0 = distance from the right end), so the icon lands
         // next to Control Center instead of behind the notch. After that, the user's own ⌘-drag position wins.
-        let stored = UserDefaults.standard.object(forKey: Self.positionKey) as? Double
+        let stored = UserDefaults.standard.object(forKey: Self.savedPositionKey) as? Double
+            ?? UserDefaults.standard.object(forKey: Self.positionKey) as? Double
         savedPosition = stored ?? 0
-        if stored == nil { UserDefaults.standard.set(0.0, forKey: Self.positionKey) }
+        UserDefaults.standard.set(savedPosition, forKey: Self.savedPositionKey)
         super.init()
         create()
     }
@@ -53,7 +57,10 @@ final class StatusItemController: NSObject {
             create()
         } else if let item = statusItem {
             // Its current place, in case the user moved it.
-            if let position = UserDefaults.standard.object(forKey: Self.positionKey) as? Double { savedPosition = position }
+            if let position = UserDefaults.standard.object(forKey: Self.positionKey) as? Double {
+                savedPosition = position
+                UserDefaults.standard.set(position, forKey: Self.savedPositionKey)
+            }
             NSStatusBar.system.removeStatusItem(item)
             statusItem = nil
             glass = nil

@@ -41,7 +41,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if trusted {
                 Task {
                     await self.model.refresh(captureGlyphs: false)
-                    await self.spacer.start()
+                    await self.startSpacer()
                 }
             }
         }
@@ -90,8 +90,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if permissions.isAccessibilityTrusted {
             Task {
                 await model.refresh(captureGlyphs: false)
-                await spacer.start()
-                applyGlassPlacement()
+                await startSpacer()
                 // The real images, ahead of the first time Whisky Bar opens.
                 await model.refresh(captureGlyphs: true)
             }
@@ -174,7 +173,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func restoreLayout() {
         Task {
-            if case .failure(let failure) = await memory.restore() {
+            let result = await memory.restore()
+            applyGlassPlacement()
+            if case .failure(let failure) = result {
                 ArrangeAlert.show(action: "把圖示排回你排好的版面", failure: failure)
             }
         }
@@ -346,14 +347,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// At launch AppKit puts the spacer back where it was, 1 pt wide. Expanding it is only safe when the items right
+    /// of it are the arranged run; otherwise it stays collapsed (and the glass in the menu bar) and the drift notice
+    /// offers to put things right. Whisky doesn't move items on its own.
+    private func startSpacer() async {
+        await spacer.start()
+        if spacer.isActive, !spacer.isExpanded {
+            if await memory.runMatchesArrangement() {
+                spacer.setExpanded(true)
+            } else {
+                Log.write("spacer: left collapsed until the arrangement is put back")
+                memory.scheduleCheck(after: .seconds(2))
+            }
+        }
+        applyGlassPlacement()
+    }
+
     private func applyGlassPlacement() {
         // Only with the spacer: without it, macOS reshuffles the items beside the notch whenever the glass leaves
         // (measured 2026-10-15), which would undo the user's arrangement every time.
-        let inNotch = glassInNotch && bar.opensFromNotch && NotchPresenter.isAvailable && spacer.isActive
+        // And only once the spacer is expanded: put back by AppKit at launch it is 1 pt wide and does nothing yet.
+        let inNotch = glassInNotch && bar.opensFromNotch && NotchPresenter.isAvailable && spacer.isActive && spacer.isExpanded
         if inNotch {
             arranger.revealAnchor = { [weak self] in self?.statusItem.setShown(true) }
             arranger.concealAnchor = { [weak self] in self?.statusItem.setShown(false) }
-            if !arranger.isBusy { statusItem.setShown(false) }
+            // Not while an operation needs the glass (showing an item for a moment can hold it for minutes).
+            if !arranger.isHoldingAnchor { arranger.rememberGlassNeighbour(); statusItem.setShown(false) }
         } else {
             arranger.revealAnchor = nil
             arranger.concealAnchor = nil
@@ -421,6 +440,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             case ("check-layout", _): Task { await memory.check() }
             case ("remember-layout", _): Task { await memory.remember() }
+            case ("restore-layout", _): restoreLayout()
             case ("bar", _): bar.toggle()
             case ("apply", _):
                 // keys: comma-separated, left to right; they become the visible run next to Whisky's icon.

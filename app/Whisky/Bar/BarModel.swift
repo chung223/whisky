@@ -122,7 +122,6 @@ final class BarModel {
     }
 
     @ObservationIgnored private let scanner = MenuBarScanner()
-    @ObservationIgnored private var isScanning = false
     @ObservationIgnored private var glyphCache: [String: (width: CGFloat, glyph: Glyph)] = [:]
 
     init() {
@@ -133,10 +132,21 @@ final class BarModel {
     }
 
     func refresh(captureGlyphs: Bool) async {
-        guard !isScanning else { return }
-        isScanning = true
-        defer { isScanning = false }
+        // A scan already under way: wait for it rather than go on with the old result.
+        if let scanning {
+            await scanning.value
+            if captureGlyphs, showsRealImages { await captureMissingGlyphs() }
+            return
+        }
+        let task = Task { @MainActor in await self.scan(captureGlyphs: captureGlyphs) }
+        scanning = task
+        await task.value
+        scanning = nil
+    }
 
+    @ObservationIgnored private var scanning: Task<Void, Never>?
+
+    private func scan(captureGlyphs: Bool) async {
         isAccessibilityTrusted = AXIsProcessTrusted()
         guard isAccessibilityTrusted else {
             items = []

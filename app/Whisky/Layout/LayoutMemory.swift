@@ -85,7 +85,8 @@ final class LayoutMemory {
     func check() async {
         guard isWatching, model.isAccessibilityTrusted, !arranger.isBusy else { return }
         await model.refresh(captureGlyphs: false)
-        guard !arranger.isBusy, arranger.anchorWindowID() != nil, arranger.isMenuBarShown() else { return }
+        // runBoundary, not the glass: it may live in the notch.
+        guard !arranger.isBusy, arranger.runBoundary() != nil, arranger.isMenuBarShown() else { return }
         guard let saved else {
             // First run: what the user has now is the arrangement.
             await remember()
@@ -117,6 +118,20 @@ final class LayoutMemory {
             unconfirmed = notice
             scheduleCheck(after: .seconds(20))
         }
+    }
+
+    /// Whether the run between the spacer and the end of the user's part matches the arrangement (by order, Control
+    /// Center's modules aside). Used at launch to decide whether the spacer, put back by AppKit, can be expanded.
+    func runMatchesArrangement() async -> Bool {
+        await model.refresh(captureGlyphs: false)
+        guard let saved, arranger.isMenuBarShown() else { return false }
+        let present = Set(model.lastScan.filter { $0.placement != .off && !BarModel.isSystemOwned($0) }.map(\.key))
+        let row = arranger.layoutRow()
+        guard row.isBounded else { return false }
+        let current = row.entries.filter { !$0.isSystem }.map(\.key)
+        let difference = LayoutDrift.compare(saved: saved, current: current, present: present)
+        Log.write("layout: at launch the spacer's run \(difference == nil ? "matches" : "doesn't match") the arrangement\(difference.map { " (missing \($0.missing), extra \($0.extra))" } ?? "")")
+        return difference == nil
     }
 
     /// Puts the arranged items back, then takes what the menu bar shows afterwards as the arrangement (an item that

@@ -50,6 +50,7 @@ final class WhiskyBarController {
     func start() {
         notch.onMenuRequest = { [weak self] in self?.onNotchMenu?() }
         notch.onScreensChange = { [weak self] in self?.onScreensChange?() }
+        notch.onForcedClose = { [weak self] in self?.close() }
         if opensFromNotch { notch.install() }
     }
 

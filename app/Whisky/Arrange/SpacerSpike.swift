@@ -20,6 +20,12 @@ final class SpacerSpike {
 
     func run(isGlassShown: @escaping () -> Bool = { true }) async {
         guard !arranger.isBusy else { Log.write("spike: busy"); return }
+        // The test moves the spacer to the glass and keeps it: with the user's spacer on, their whole run would end
+        // up off the screen. Turn the spacer off first (and back on afterwards).
+        guard !spacer.isActive else {
+            Log.write("spike: refused: the spacer is on; turn it off before the self-test")
+            return
+        }
         self.isGlassShown = isGlassShown
         failures = 0
         Log.write("spike: start\(arranger.revealAnchor != nil ? " (glass in the notch)" : "")")
