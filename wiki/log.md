@@ -110,3 +110,8 @@
 - 新功能：設定視窗（⌘,）、可錄製的快捷鍵、Whisky Bar 裡 Apple 系統項目用 SF Symbols、記住排好的版面並在跑掉時提醒（不自動移動）。
 - 實測（只讀）：選單列 90 秒內穩定；麥克風指示（AudioVideoModule）會自己插進 Whisky 左邊。版面比對因此改成比順序、不算 Control Center 模組、連續兩次才提醒。
 - 更新 concepts/platform-verification.md、synthesis/roadmap.md、synthesis/whisky-architecture.md（實作現況）。
+
+## [2026-10-15] query | v0.8：瀏海面板與介面整理
+- Whisky Bar 從瀏海倒出來（滑過提示、點了展開，瓶頸造型不遮選單列）；玻璃小面板給沒有瀏海的螢幕；排列視窗改成選單列預覽；設定視窗整理。
+- 實測：全螢幕時選單列項目全部不在畫面上（新增保護）；溢出的選單列最左項目在螢幕外，送走失敗（改目標）；重排改成每步重算。
+- 更新 concepts/platform-verification.md、projects/notch-apps.md、synthesis/roadmap.md、synthesis/whisky-architecture.md。

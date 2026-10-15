@@ -59,6 +59,10 @@ final class LayoutMemory {
     /// where they were.
     func remember() async {
         await model.refresh(captureGlyphs: false)
+        guard arranger.isMenuBarShown() else {
+            Log.write("layout: menu bar hidden, keeping the remembered layout")
+            return
+        }
         let row = arranger.layoutRow()
         let firstDrawn = row.entries.firstIndex(where: \.isDrawn)
         let run = row.isBounded ? row.entries.map(\.key) : firstDrawn.map { row.entries[$0...].map(\.key) } ?? []
@@ -81,7 +85,7 @@ final class LayoutMemory {
     func check() async {
         guard isWatching, model.isAccessibilityTrusted, !arranger.isBusy else { return }
         await model.refresh(captureGlyphs: false)
-        guard !arranger.isBusy, arranger.anchorWindowID() != nil else { return }
+        guard !arranger.isBusy, arranger.anchorWindowID() != nil, arranger.isMenuBarShown() else { return }
         guard let saved else {
             // First run: what the user has now is the arrangement.
             await remember()

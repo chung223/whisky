@@ -12,6 +12,7 @@ final class ItemMover {
         case targetNotFound
         case userBusy
         case didNotMove
+        case menuBarHidden
 
         var description: String {
             switch self {
@@ -21,6 +22,7 @@ final class ItemMover {
             case .targetNotFound: "找不到目標位置"
             case .userBusy: "滑鼠按鍵一直按著"
             case .didNotMove: "圖示沒有移到位置"
+            case .menuBarHidden: "選單列現在是隱藏的（全螢幕 App 或自動隱藏選單列），先讓它出現再試"
             }
         }
     }
@@ -42,6 +44,9 @@ final class ItemMover {
             guard let anchorID = anchorWindowID() else { throw .anchorUnavailable }
             let frames = WindowList.statusFrames(inMenuBarRowOnly: true)
             guard let anchor = frames[anchorID] else { throw .anchorUnavailable }
+            // With the menu bar hidden (a full-screen app, or "automatically hide"), nothing in it is drawn and a drag
+            // would land nowhere.
+            guard WindowList.statusWindows().first(where: { $0.id == anchorID })?.isOnscreen == true else { throw .menuBarHidden }
             guard let item = frames[itemID] else { throw .itemNotFound }
             guard let target = frames[destination.targetWindowID] else { throw .targetNotFound }
             if MovePlanning.isSatisfied(itemID: itemID, destination: destination, frames: frames) {

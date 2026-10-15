@@ -63,8 +63,14 @@ final class Arranger {
 
     func sendAwayWindow(_ itemID: UInt32, label: String) async -> Result<Void, ItemMover.Failure> {
         let anchor = anchorWindowID()
-        let frames = WindowList.statusFrames(inMenuBarRowOnly: true)
-        guard let leftmost = frames.filter({ $0.key != itemID && $0.key != anchor }).min(by: { $0.value.minX < $1.value.minX })?.key
+        let frames = WindowList.statusFrames(inMenuBarRowOnly: true).filter { $0.key != itemID && $0.key != anchor }
+        // With the spacer, everything left of it is already off the screen and a drop far out there lands (measured
+        // in the self-test). Without it, the leftmost item can hang partly off the screen when the menu bar is
+        // overfull, and a drop left of it can't land (measured: three misses at x = -113); the leftmost item that
+        // starts on the screen is just as far behind the notch.
+        let displayMinX = NSScreen.screens.first?.frame.minX ?? 0
+        let candidates = spacerID == nil ? frames.filter { $0.value.minX >= displayMinX } : frames
+        guard let leftmost = (candidates.isEmpty ? frames : candidates).min(by: { $0.value.minX < $1.value.minX })?.key
         else { return failed("send away \(label)", .targetNotFound) }
         let result = await run("send away \(label)") { () async throws(ItemMover.Failure) in try await self.mover.move(itemID, to: .leftOf(leftmost)) }
         return result
@@ -113,35 +119,55 @@ final class Arranger {
     ///   - onlyIDs: a hard limit: if the plan would move anything outside this set, nothing is moved at all.
     func rebuild(wanted: [UInt32], allowSendAway: Bool = true, onlyIDs: Set<UInt32>? = nil,
                  progress: @escaping @MainActor (Int, Int) -> Void) async -> Result<Int, ItemMover.Failure> {
-        guard let plan = currentPlan(wanted: wanted, allowSendAway: allowSendAway) else { return failed("rebuild", .anchorUnavailable).map { 0 } }
-        Log.write("arrange: rebuild \(wanted.count) items (spacer \(spacerID.map(String.init) ?? "off")): send away \(plan.sendAway), pin \(plan.pin)")
+        guard let first = currentPlan(wanted: wanted, allowSendAway: allowSendAway) else { return failed("rebuild", .anchorUnavailable).map { 0 } }
+        Log.write("arrange: rebuild \(wanted.count) items (spacer \(spacerID.map(String.init) ?? "off")): send away \(first.sendAway), pin \(first.pin)")
         if let onlyIDs {
-            let outside = (plan.sendAway + plan.pin).filter { !onlyIDs.contains($0) }
+            let outside = (first.sendAway + first.pin).filter { !onlyIDs.contains($0) }
             guard outside.isEmpty else {
                 Log.write("arrange: rebuild refused: it would move \(outside), which are not allowed here")
                 return .failure(.didNotMove)
             }
         }
-        // A 5,000 pt spacer can't be dragged: collapse it while it has to move, and expand it again afterwards.
-        let spacerMoves = spacerID.map { plan.pin.contains($0) || plan.sendAway.contains($0) } ?? false
-        let reExpand = spacerMoves && spacer?.isExpanded == true
-        if reExpand {
+        // A 5,000 pt spacer can't be dragged: when it has to move, keep it collapsed for the whole rebuild (as the
+        // self-test measured it) and expand it again at the end.
+        let spacerMoves = spacerID.map { first.pin.contains($0) || first.sendAway.contains($0) } ?? false
+        let reExpandAtEnd = spacerMoves && spacer?.isExpanded == true
+        if reExpandAtEnd {
             spacer?.setExpanded(false)
             try? await Task.sleep(for: .milliseconds(400))
         }
-        defer { if reExpand { spacer?.setExpanded(true) } }
+        defer { if reExpandAtEnd { spacer?.setExpanded(true) } }
+        // One move at a time, re-reading the menu bar in between: macOS refills a gap on its own (sending one item
+        // away often brings the next one back into place), so the rest of the first plan may no longer be needed.
         var done = 0
-        for id in plan.sendAway {
-            progress(done, plan.count)
-            if case .failure(let failure) = await sendAwayWindow(id, label: "\(id)") { return .failure(failure) }
+        let limit = first.count + 3
+        var plan = first
+        while !plan.isEmpty {
+            guard done < limit else {
+                Log.write("arrange: rebuild gave up after \(done) moves; still to do: send away \(plan.sendAway), pin \(plan.pin)")
+                return .failure(.didNotMove)
+            }
+            progress(done, done + plan.count)
+            let (id, sendsAway) = plan.sendAway.first.map { ($0, true) } ?? (plan.pin[0], false)
+            if let onlyIDs, !onlyIDs.contains(id) {
+                Log.write("arrange: rebuild refused: the next move is \(id), which is not allowed here")
+                return .failure(.didNotMove)
+            }
+            // The spacer turned up in a later plan while expanded: collapse it for its own move.
+            let reExpand = id == spacerID && spacer?.isExpanded == true
+            if reExpand {
+                spacer?.setExpanded(false)
+                try? await Task.sleep(for: .milliseconds(400))
+            }
+            let result = sendsAway ? await sendAwayWindow(id, label: "\(id)") : await pinWindow(id, label: "\(id)")
+            if reExpand { spacer?.setExpanded(true) }
+            if case .failure(let failure) = result { return .failure(failure) }
             done += 1
+            guard let next = currentPlan(wanted: wanted, allowSendAway: allowSendAway) else { return failed("rebuild", .anchorUnavailable).map { 0 } }
+            if next.count < plan.count - 1 { Log.write("arrange: the menu bar filled in by itself; \(next.count) moves left") }
+            plan = next
         }
-        for id in plan.pin {
-            progress(done, plan.count)
-            if case .failure(let failure) = await pinWindow(id, label: "\(id)") { return .failure(failure) }
-            done += 1
-        }
-        progress(done, plan.count)
+        progress(done, done)
         await model.refresh(captureGlyphs: false)
         return .success(done)
     }
@@ -226,6 +252,13 @@ final class Arranger {
         guard let cocoa = anchorFrame(), let primary = NSScreen.screens.first else { return nil }
         let frame = MenuBarGeometry.topLeftRect(fromCocoa: cocoa, primaryMaxY: primary.frame.maxY)
         return StatusWindowMatcher.match(frame, in: windows)?.id
+    }
+
+    /// False while the menu bar is hidden (a full-screen app, or "automatically hide the menu bar"): then nothing in it
+    /// is drawn, so it can be neither read as a layout nor arranged.
+    func isMenuBarShown() -> Bool {
+        guard let id = anchorWindowID() else { return false }
+        return WindowList.statusWindows().first { $0.id == id }?.isOnscreen ?? false
     }
 
     /// Whisky's icon frame in the menu bar (global top-left coordinates).

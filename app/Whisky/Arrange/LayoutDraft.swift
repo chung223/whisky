@@ -11,16 +11,13 @@ final class LayoutDraft {
         let item: ScannedItem
         let width: CGFloat
         let icon: NSImage?
+        /// A tile's caption: the app name, or the item's own label when the app has several items ("Memory").
+        let title: String
+        /// "iStat Menus · Memory", for tooltips.
+        let tooltip: String
+        let symbol: String?
 
         var id: String { item.key }
-
-        /// Short name for a tile: the item's own label when it says more than the app name.
-        var title: String {
-            let label = item.label.trimmingCharacters(in: .whitespaces)
-            return label.isEmpty || label == item.appName ? item.appName : label
-        }
-
-        var tooltip: String { title == item.appName ? title : "\(item.appName)：\(title)" }
 
         static func == (lhs: Entry, rhs: Entry) -> Bool { lhs.id == rhs.id }
     }
@@ -35,10 +32,17 @@ final class LayoutDraft {
     private(set) var visible: [Entry] = []
     private(set) var hidden: [Entry] = []
     private(set) var off: [Entry] = []
+    /// Right of Whisky's icon (Control Center, the clock): shown for context, can't be moved.
+    private(set) var fixed: [Entry] = []
+    /// Captured images by item key (with Screen Recording); tiles fall back to symbols and app icons.
+    var glyphs: [String: Glyph] = [:]
     /// Points between the notch and Whisky's icon.
     private(set) var capacity: CGFloat = 0
     var status: Status = .idle
     var note: String?
+    /// The menu bar was hidden when this was read (a full-screen app): every item looks hidden, so nothing can be
+    /// arranged until it shows again.
+    private(set) var isMenuBarHidden = false
 
     @ObservationIgnored private var savedVisible: [String] = []
 
@@ -49,20 +53,31 @@ final class LayoutDraft {
 
     /// Builds the draft from a fresh scan: items left of Whisky's icon are editable; items right of it (Control
     /// Center, the clock) are fixed; items not in the menu bar at all are listed but can't be placed.
-    func load(scan: [ScannedItem], anchorFrame: CGRect?, drawableMinX: CGFloat) {
+    func load(scan: [ScannedItem], anchorFrame: CGRect?, drawableMinX: CGFloat, menuBarShown: Bool = true) {
+        isMenuBarHidden = !menuBarShown
         let frames = WindowList.statusFrames(inMenuBarRowOnly: true)
         var icons: [pid_t: NSImage] = [:]
+        let itemsPerApp = Dictionary(grouping: scan, by: \.pid).mapValues(\.count)
         func entry(_ item: ScannedItem) -> Entry {
             let icon = icons[item.pid] ?? NSRunningApplication(processIdentifier: item.pid)?.icon
             icons[item.pid] = icon
             let width = item.windowID.flatMap { frames[$0]?.width } ?? item.frame.width
-            return Entry(item: item, width: width, icon: icon)
+            let systemName = SystemItemSymbols.name(key: item.key, bundleID: item.bundleID)
+            return Entry(
+                item: item, width: width, icon: icon,
+                title: ItemNaming.shortName(appName: item.appName, label: item.label, systemName: systemName,
+                                            appHasSeveralItems: (itemsPerApp[item.pid] ?? 0) > 1),
+                tooltip: ItemNaming.displayName(appName: item.appName, label: item.label, systemName: systemName),
+                symbol: SystemItemSymbols.symbol(key: item.key, bundleID: item.bundleID)
+                    .flatMap { NSImage(systemSymbolName: $0, accessibilityDescription: nil) == nil ? nil : $0 }
+            )
         }
         let anchorMinX = anchorFrame?.minX ?? .infinity
         let movable = scan.filter { $0.placement != .off && $0.windowID != nil && $0.frame.minX < anchorMinX }
         visible = movable.filter { $0.placement == .shown }.sorted { $0.frame.minX < $1.frame.minX }.map(entry)
         hidden = movable.filter { $0.placement == .hidden }.sorted { $0.frame.minX < $1.frame.minX }.map(entry)
         off = scan.filter { $0.placement == .off }.map(entry)
+        fixed = scan.filter { $0.placement == .shown && $0.frame.minX > anchorMinX }.sorted { $0.frame.minX < $1.frame.minX }.map(entry)
         capacity = anchorFrame.map { max(0, $0.minX - drawableMinX) } ?? 0
         savedVisible = visible.map(\.id)
     }

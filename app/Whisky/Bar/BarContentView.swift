@@ -215,7 +215,6 @@ private struct BarCell: View {
     let onHover: (Bool) -> Void
 
     @State private var isHovered = false
-    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         Button { actions.open(item) } label: {
@@ -251,39 +250,7 @@ private struct BarCell: View {
         }
     }
 
-    @ViewBuilder
     private var image: some View {
-        if let glyph = item.glyph {
-            let height = min(18, glyph.image.size.height)
-            if let white = glyph.white, let black = glyph.black {
-                Image(nsImage: style == .notch || colorScheme == .dark ? white : black)
-                    .resizable()
-                    .interpolation(.high)
-                    .scaledToFit()
-                    .frame(height: height)
-            } else {
-                Image(nsImage: glyph.image)
-                    .resizable()
-                    .interpolation(.high)
-                    .scaledToFit()
-                    .frame(height: height)
-                    // Drawn for a dark menu bar: its white parts need something dark behind them on a light panel.
-                    .padding(glyph.isLight && style == .glass && colorScheme == .light ? 2 : 0)
-                    .background(glyph.isLight && style == .glass && colorScheme == .light ? Color.black.opacity(0.55) : .clear,
-                                in: .rect(cornerRadius: 4))
-            }
-        } else if let symbol = item.symbol {
-            Image(systemName: symbol)
-                .font(.system(size: 13, weight: .medium))
-                .frame(width: 18, height: 18)
-        } else if let icon = item.appIcon {
-            Image(nsImage: icon)
-                .resizable()
-                .scaledToFit()
-                .frame(width: 17, height: 17)
-        } else {
-            Image(systemName: "app.dashed")
-                .frame(width: 18, height: 18)
-        }
+        ItemImage(glyph: item.glyph, symbol: item.symbol, appIcon: item.appIcon, onDark: style == .notch)
     }
 }

@@ -6,7 +6,7 @@ sources:
   - https://github.com/TheBoredTeam/boring.notch
   - https://github.com/Lakr233/NotchDrop
   - https://github.com/Lakr233/SkyLightWindow
-updated: 2026-10-12
+updated: 2026-10-15
 ---
 
 # 瀏海區 app（boring.notch、NotchDrop）
@@ -61,3 +61,11 @@ boring.notch 的 `boringNotch/sizing/matters.swift`（`getClosedNotchSize`）：
 ## 授權注意
 
 boring.notch 是 GPL-3.0，不可複製；NotchDrop 與 SkyLightWindow 是 MIT，可引用並保留聲明。
+
+## Whisky 的做法（2026-10-15，v0.8）
+
+自己寫，沒有用 boring.notch（GPL）的程式碼：`app/Whisky/Notch/NotchPresenter.swift`。
+- 幾何只用 `auxiliaryTopLeftArea`／`auxiliaryTopRightArea`／`safeAreaInsets.top`；`level = .mainMenu + 3`（在選單列與它的項目之上、選單之下，所以 menu mirroring 的選單會蓋在面板上）。
+- 三種狀態：關閉（黑色形狀縮在瀏海裡，螢幕在那裡沒有像素，所以看不到）、滑過（瀏海往下長 22 pt，顯示藏了幾個圖示）、展開（Whisky Bar）。
+- 視窗大小跟著形狀變：變大時先放大視窗、形狀在裡面動畫；變小時等動畫結束才縮視窗。滑過狀態每 0.25 秒確認游標還在，不靠 mouseExited（視窗在游標下改大小時會漏掉）。
+- 細節與實測見 [platform-verification](../concepts/platform-verification.md)。
