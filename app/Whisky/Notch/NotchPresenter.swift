@@ -86,9 +86,9 @@ final class NotchPresenter: BarPresenter {
             return
         }
         state.notchSize = geometry.rect.size
-        Log.write("notch: \(Int(geometry.rect.minX))–\(Int(geometry.rect.maxX)) × \(Int(geometry.rect.height)) pt")
         let panel = panel ?? makePanel()
         self.panel = panel
+        Log.write("notch: \(Int(geometry.rect.minX))–\(Int(geometry.rect.maxX)) × \(Int(geometry.rect.height)) pt, window level \(panel.level.rawValue)")
         setWindowSize(state.shapeSize(for: state.phase))
         panel.orderFrontRegardless()
     }
@@ -205,10 +205,11 @@ final class NotchPresenter: BarPresenter {
     private func makePanel() -> NotchPanel {
         let panel = NotchPanel(contentRect: NSRect(x: 0, y: 0, width: 100, height: 30), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         panel.title = "Whisky Notch"
-        // Above the menu bar and its items, below menus (a mirrored menu opens over it).
+        panel.isFloatingPanel = true
+        // Above the menu bar and its items, below menus (a mirrored menu opens over it). Set after `isFloatingPanel`,
+        // which resets the level to `.floating`: under the menu bar, the notch never saw the pointer (2026-10-16).
         panel.level = NSWindow.Level(rawValue: NSWindow.Level.mainMenu.rawValue + 3)
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
-        panel.isFloatingPanel = true
         panel.hidesOnDeactivate = false
         panel.isOpaque = false
         panel.backgroundColor = .clear
