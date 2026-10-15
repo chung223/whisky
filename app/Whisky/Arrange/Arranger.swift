@@ -26,7 +26,9 @@ final class Arranger {
         self.anchorNumber = anchorNumber
     }
 
-    var isBusy: Bool { mover.isBusy }
+    /// A drag is under way, or a whole arrangement is (between its drags too).
+    var isBusy: Bool { mover.isBusy || arranging > 0 }
+    private var arranging = 0
 
     // MARK: - The glass, on demand
 
@@ -43,7 +45,7 @@ final class Arranger {
     /// Waits until the user has been idle for `seconds`; false if that didn't happen before `timeout`.
     static func waitUntilUserIdle(_ seconds: Double, timeout: Duration = .seconds(600)) async -> Bool {
         let deadline = ContinuousClock.now + timeout
-        while ContinuousClock.now < deadline {
+        while ContinuousClock.now < deadline, !Task.isCancelled {
             if userIdleSeconds >= seconds { return true }
             try? await Task.sleep(for: .milliseconds(250))
         }
@@ -53,13 +55,16 @@ final class Arranger {
     /// When Whisky's own last drag ended: putting the pointer back after it counts as HID input too.
     static var ownInputEnded = ContinuousClock.now - .seconds(60)
 
-    private func pauseForUserIfNeeded() async {
-        guard pausesForUser, Self.userIdleSeconds < 1.5 else { return }
+    /// False when the user stayed busy for two minutes: then the arrangement stops rather than drag against their hand.
+    private func pauseForUserIfNeeded() async -> Bool {
+        guard pausesForUser, Self.userIdleSeconds < 1.5 else { return true }
         // The last input was Whisky's own (the pointer put back after a drag), not the user's.
         let lastInput = ContinuousClock.now - .milliseconds(Int(Self.userIdleSeconds * 1000))
-        if lastInput <= Self.ownInputEnded + .milliseconds(500) { return }
+        if lastInput <= Self.ownInputEnded + .milliseconds(500) { return true }
         Log.write("arrange: the user is busy; pausing")
-        _ = await Self.waitUntilUserIdle(1.5)
+        let idle = await Self.waitUntilUserIdle(1.5, timeout: .seconds(120))
+        if !idle { Log.write("arrange: the user stayed busy; stopping") }
+        return idle
     }
 
     /// Whether an operation needs the glass in the menu bar right now (it must not be taken away meanwhile).
@@ -201,11 +206,27 @@ final class Arranger {
     // MARK: - Whole run
 
     /// Makes `visible` (left to right) the run next to Whisky's icon, with the spacer at its left end when there is one.
-    func apply(visible: [ScannedItem], strays: [UInt32] = [], progress: @escaping @MainActor (Int, Int) -> Void) async -> Result<Int, ItemMover.Failure> {
+    /// - Parameter onlyKnownStrays: for moves nobody asked for just now (putting the arrangement back by itself):
+    ///   besides the wanted items, only `strays` (items Whisky knows and knows aren't arranged) may be moved. A window
+    ///   the scan didn't name (an app slow to answer) might be one of the user's arranged items, so a plan that would
+    ///   move it is refused instead.
+    func apply(visible: [ScannedItem], strays: [UInt32] = [], onlyKnownStrays: Bool = false,
+               progress: @escaping @MainActor (Int, Int) -> Void) async -> Result<Int, ItemMover.Failure> {
         let wanted = visible.compactMap(\.windowID)
         // A collapsed spacer can sit at the notch boundary, where macOS reshuffles items: place it afresh first.
         if let spacer, spacer.isActive, !spacer.isExpanded { return await placeRun(wanted, alsoSendAway: strays, progress: progress) }
-        return await rebuild(wanted: wanted, progress: progress)
+        guard onlyKnownStrays else { return await rebuild(wanted: wanted, progress: progress) }
+        var allowed = Set(wanted + strays)
+        guard let spacerID else { return await rebuild(wanted: wanted, onlyIDs: allowed, progress: progress) }
+        allowed.insert(spacerID)
+        // With the spacer: send the known strays away, then only re-pin (an unnamed window is never touched).
+        await holdAnchor()
+        defer { releaseAnchor() }
+        for stray in strays where isInRun(stray) && !wanted.contains(stray) {
+            guard await pauseForUserIfNeeded(), !Task.isCancelled else { return .failure(.userBusy) }
+            if case .failure(let failure) = await sendAwayWindow(stray, label: "\(stray) (stray)") { return .failure(failure) }
+        }
+        return await rebuild(wanted: wanted, allowSendAway: false, onlyIDs: allowed, progress: progress)
     }
 
     /// With the spacer: makes `wanted` the run the reliable way. The spacer goes next to the glass while 1 pt wide (in
@@ -224,12 +245,14 @@ final class Arranger {
             spacer.setExpanded(false)
             try? await Task.sleep(for: .milliseconds(400))
         }
-        await pauseForUserIfNeeded()
+        arranging += 1
+        defer { arranging -= 1 }
+        guard await pauseForUserIfNeeded(), !Task.isCancelled else { return .failure(.userBusy) }
         if case .failure(let failure) = await pinWindow(spacerID, label: "spacer") { return .failure(failure) }
         spacer.setExpanded(true)
         try? await Task.sleep(for: .milliseconds(500))
         for stray in strays where !wanted.contains(stray) {
-            await pauseForUserIfNeeded()
+            guard await pauseForUserIfNeeded(), !Task.isCancelled else { return .failure(.userBusy) }
             if case .failure = await sendAwayWindow(stray, label: "\(stray) (stray)") { Log.write("arrange: couldn't send stray \(stray) away; carrying on") }
         }
         return await rebuild(wanted: wanted, allowSendAway: false, progress: progress)
@@ -275,7 +298,11 @@ final class Arranger {
     func rebuild(wanted: [UInt32], allowSendAway: Bool = true, onlyIDs: Set<UInt32>? = nil,
                  progress: @escaping @MainActor (Int, Int) -> Void) async -> Result<Int, ItemMover.Failure> {
         await holdAnchor()
-        defer { releaseAnchor() }
+        arranging += 1
+        defer {
+            arranging -= 1
+            releaseAnchor()
+        }
         guard let first = currentPlan(wanted: wanted, allowSendAway: allowSendAway) else { return failed("rebuild", .anchorUnavailable).map { 0 } }
         Log.write("arrange: rebuild \(wanted.count) items (spacer \(spacerID.map(String.init) ?? "off")): send away \(first.sendAway), pin \(first.pin)")
         if let onlyIDs {
@@ -313,7 +340,7 @@ final class Arranger {
             seen.append(plan)
             let steps: [(id: UInt32, sendsAway: Bool)] = plan.sendAway.first.map { [($0, true)] } ?? plan.pin.map { ($0, false) }
             for step in steps {
-                await pauseForUserIfNeeded()
+                guard await pauseForUserIfNeeded(), !Task.isCancelled else { return .failure(.userBusy) }
                 guard done < cap else {
                     Log.write("arrange: rebuild gave up after \(done) moves (too many moves)")
                     return .failure(.didNotMove)

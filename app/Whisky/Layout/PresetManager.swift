@@ -16,7 +16,13 @@ final class PresetManager {
     private var lastConditions: TriggerConditions?
     private var pendingEvaluation: Task<Void, Never>?
     private var screenObserver: NSObjectProtocol?
+    private var sleepObservers: [NSObjectProtocol] = []
     private var powerSource: CFRunLoopSource?
+    /// Displays asleep: monitors drop out of the screen list then, which isn't the user unplugging them.
+    private var displaysAsleep = false
+    /// Switched to, but its arrangement isn't in place yet. Until it is, the active preset stays the one whose
+    /// arrangement the menu bar shows, so arranging meanwhile can't write the old layout into the new preset.
+    private(set) var pendingID: UUID?
 
     private(set) var presets: [LayoutPreset] {
         get {
@@ -53,6 +59,20 @@ final class PresetManager {
             CFRunLoopAddSource(CFRunLoopGetMain(), source, .defaultMode)
             powerSource = source
         }
+        let workspace = NSWorkspace.shared.notificationCenter
+        sleepObservers.append(workspace.addObserver(forName: NSWorkspace.screensDidSleepNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.displaysAsleep = true
+                self?.pendingEvaluation?.cancel()
+            }
+        })
+        sleepObservers.append(workspace.addObserver(forName: NSWorkspace.screensDidWakeNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.displaysAsleep = false
+                // Docks and monitors come back late after a wake.
+                self?.evaluateSoon(after: .seconds(10))
+            }
+        })
         lastConditions = Self.currentConditions()
     }
 
@@ -62,18 +82,23 @@ final class PresetManager {
         let conditions = Self.currentConditions()
         lastConditions = conditions
         guard let id = PresetSelector.select(presets, for: conditions), let preset = presets.first(where: { $0.id == id }) else { return active }
-        if id != activeID { Log.write("presets: at launch \(Self.describe(conditions)) → \(preset.name)") }
-        activeID = id
+        if id != activeID {
+            Log.write("presets: at launch \(Self.describe(conditions)) → \(preset.name)")
+            pendingID = id
+        }
         return preset
     }
 
-    /// Displays come and go in bursts of notifications: decide once things have settled.
-    private func evaluateSoon() {
+    /// Displays come and go in bursts of notifications, and some flicker: act only on conditions that held still.
+    private func evaluateSoon(after delay: Duration = .seconds(4)) {
         pendingEvaluation?.cancel()
         pendingEvaluation = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(2))
-            guard !Task.isCancelled else { return }
-            self?.evaluate()
+            try? await Task.sleep(for: delay)
+            guard let self, !Task.isCancelled, !self.displaysAsleep else { return }
+            let first = Self.currentConditions()
+            try? await Task.sleep(for: .seconds(3))
+            guard !Task.isCancelled, !self.displaysAsleep, Self.currentConditions() == first else { return }
+            self.evaluate()
         }
     }
 
@@ -81,10 +106,14 @@ final class PresetManager {
         let conditions = Self.currentConditions()
         guard conditions != lastConditions else { return }
         lastConditions = conditions
-        guard let id = PresetSelector.select(presets, for: conditions), id != activeID,
+        guard let id = PresetSelector.select(presets, for: conditions), id != (pendingID ?? activeID),
               let preset = presets.first(where: { $0.id == id }) else { return }
         Log.write("presets: \(Self.describe(conditions)) → \(preset.name)")
-        activeID = id
+        switchPending(to: preset)
+    }
+
+    private func switchPending(to preset: LayoutPreset) {
+        pendingID = preset.id == activeID ? nil : preset.id
         onSwitch?(preset)
     }
 
@@ -125,7 +154,15 @@ final class PresetManager {
 
     func delete(_ id: UUID) {
         presets.removeAll { $0.id == id }
-        if activeID == id { activeID = presets.first { $0.trigger == .otherwise }?.id ?? presets.first?.id }
+        if pendingID == id { pendingID = nil }
+        guard activeID == id else { return }
+        // The menu bar shows the deleted preset's arrangement: switch to the everyday one properly, so its
+        // arrangement is put in place (and arranging later doesn't write the deleted layout into it).
+        activeID = nil
+        if let next = presets.first(where: { $0.trigger == .otherwise }) ?? presets.first {
+            pendingID = next.id
+            onSwitch?(next)
+        }
     }
 
     func setTrigger(_ trigger: LayoutPreset.Trigger, for id: UUID) {
@@ -146,14 +183,32 @@ final class PresetManager {
 
     /// Picked by hand (menu or Settings).
     func activate(_ id: UUID) {
-        guard let preset = presets.first(where: { $0.id == id }), id != activeID else { return }
-        activeID = id
+        guard let preset = presets.first(where: { $0.id == id }), id != (pendingID ?? activeID) else { return }
         Log.write("presets: picked \(preset.name)")
-        onSwitch?(preset)
+        switchPending(to: preset)
     }
 
-    /// The arrangement changed while this preset was active (arranged, kept, put back): it is the preset now.
-    func syncActive(_ keys: [String]) {
+    /// The pending preset's arrangement turned out to be in place already (the launch check matched).
+    func confirmPending() {
+        guard let pendingID else { return }
+        activeID = pendingID
+        self.pendingID = nil
+        Log.write("presets: \(active?.name ?? "?") is in place")
+    }
+
+    /// The arrangement was taken anew. After a put-back it is the pending preset's arrangement in place: that preset
+    /// becomes active. Otherwise the user arranged or kept something: it belongs to the active preset, and a switch
+    /// still waiting is dropped (the user has just said what they want).
+    func syncActive(_ keys: [String], afterPuttingBack: Bool) {
+        if let pendingID {
+            if afterPuttingBack {
+                activeID = pendingID
+                Log.write("presets: \(active?.name ?? "?") is in place")
+            } else {
+                Log.write("presets: switch dropped; the arrangement was changed by hand")
+            }
+            self.pendingID = nil
+        }
         guard let activeID else { return }
         var all = presets
         guard let index = all.firstIndex(where: { $0.id == activeID }), all[index].keys != keys else { return }

@@ -11,8 +11,9 @@ final class LayoutMemory {
 
     private let model: BarModel
     private let arranger: Arranger
-    /// The arrangement was taken anew (the active layout preset follows it).
-    var onRemember: (([String]) -> Void)?
+    /// The arrangement was taken anew (the active layout preset follows it); true when it came from putting a
+    /// remembered arrangement back (a preset switch completing), false when the user arranged or kept something.
+    var onRemember: ((_ keys: [String], _ afterPuttingBack: Bool) -> Void)?
     private var pendingCheck: Task<Void, Never>?
     /// A difference seen once; it is shown only if the next check, 20 s later, still sees it (apps starting up and
     /// the menu bar relaying out pass through states that sort themselves out).
@@ -59,7 +60,7 @@ final class LayoutMemory {
     /// spacer, everything between it and Whisky's icon; without it, from the leftmost drawn item to the icon (an item
     /// skipped for room in between included). Control Center's modules are kept, so putting the run back leaves them
     /// where they were.
-    func remember() async {
+    func remember(afterPuttingBack: Bool = false) async {
         await model.refresh(captureGlyphs: false)
         guard arranger.isMenuBarShown() else {
             Log.write("layout: menu bar hidden, keeping the remembered layout")
@@ -74,7 +75,7 @@ final class LayoutMemory {
         unconfirmed = nil
         model.layoutDrift = nil
         Log.write("layout: remembered \(run)")
-        onRemember?(run)
+        onRemember?(run, afterPuttingBack)
     }
 
     func scheduleCheck(after delay: Duration) {
@@ -127,44 +128,55 @@ final class LayoutMemory {
 
     /// Whether the run between the spacer and the end of the user's part matches the arrangement (by order, Control
     /// Center's modules aside). Used at launch to decide whether the spacer, put back by AppKit, can be expanded.
-    /// Items that were in the spacer's run at launch but aren't arranged there (`runMatchesArrangement`).
-    private(set) var launchStrays: [String] = []
+    enum LaunchCheck { case matches, differs, undecided }
 
-    func runMatchesArrangement() async -> Bool {
+    /// Whether the run between the spacer and the end of the user's part matches the arrangement (by order, Control
+    /// Center's modules aside). Undecided while the menu bar is hidden (a full-screen app): nothing can be judged then.
+    func checkRunAtLaunch() async -> LaunchCheck {
         await model.refresh(captureGlyphs: false)
-        guard let saved, arranger.isMenuBarShown() else { return false }
+        guard let saved else { return .matches }
+        guard arranger.isMenuBarShown() else { return .undecided }
         let present = Set(model.lastScan.filter { $0.placement != .off && !BarModel.isSystemOwned($0) }.map(\.key))
         let row = arranger.layoutRow()
-        guard row.isBounded else { return false }
+        guard row.isBounded else { return .undecided }
         let current = row.entries.filter { !$0.isSystem }.map(\.key)
         let difference = LayoutDrift.compare(saved: saved, current: current, present: present)
-        launchStrays = difference?.extra ?? []
         Log.write("layout: at launch the spacer's run \(difference == nil ? "matches" : "doesn't match") the arrangement\(difference.map { " (missing \($0.missing), extra \($0.extra))" } ?? "")")
-        return difference == nil
+        return difference == nil ? .matches : .differs
     }
 
     /// Puts the arranged items back, then takes what the menu bar shows afterwards as the arrangement (an item that
     /// doesn't fit any more is dropped from it instead of being reported forever).
-    func restore() async -> Result<Int, ItemMover.Failure> {
-        guard let saved else { return .success(0) }
-        // Right after a launch an app can be slow to answer the scan; an arranged item missing from it would be
-        // left out of the run. Look a few more times (a busy app is asked again after three scans).
+    /// - Parameter automatic: nobody asked for this just now (after a launch, a preset switch): only items Whisky
+    ///   knows aren't arranged may be sent away (`Arranger.apply(onlyKnownStrays:)`).
+    func restore(automatic: Bool = false) async -> Result<Int, ItemMover.Failure> {
+        guard let target = saved else { return .success(0) }
+        // An app can be slow to answer the scan (right after a launch); an arranged item missing from it would be
+        // left out. Look a few more times, but only for apps that are running (the others can't answer).
+        let running = Set(NSWorkspace.shared.runningApplications.compactMap(\.bundleIdentifier))
         for attempt in 1...5 {
             await model.refresh(captureGlyphs: false)
-            let missing = saved.filter { model.item(forKey: $0) == nil }
+            let missing = target.filter { key in model.item(forKey: key) == nil && running.contains { key.hasPrefix($0 + "-") } }
             if missing.isEmpty || attempt == 5 {
                 if !missing.isEmpty { Log.write("layout: \(missing) not in the menu bar; restoring without them") }
                 break
             }
             try? await Task.sleep(for: .milliseconds(500))
         }
-        let items = saved.compactMap { model.item(forKey: $0) }.filter { $0.placement != .off }
-        Log.write("layout: restoring \(items.map(\.key))")
-        let strays = launchStrays.compactMap { model.item(forKey: $0)?.windowID }
-        launchStrays = []
-        let result = await arranger.apply(visible: items, strays: strays) { _, _ in }
+        guard !Task.isCancelled, saved == target else { return .failure(.didNotMove) }
+        let items = target.compactMap { model.item(forKey: $0) }.filter { $0.placement != .off }
+        // Known items in the run that aren't arranged.
+        let arranged = Set(target)
+        let strays = arranger.layoutRow().entries.filter { !$0.isSystem && !arranged.contains($0.key) }.compactMap { model.item(forKey: $0.key)?.windowID }
+        Log.write("layout: restoring \(items.map(\.key))\(strays.isEmpty ? "" : ", sending away \(strays)")")
+        let result = await arranger.apply(visible: items, strays: strays, onlyKnownStrays: automatic) { _, _ in }
         if case .success = result {
-            await remember()
+            // Another arrangement may have been asked for meanwhile (a preset switch): don't overwrite it.
+            if saved == target {
+                await remember(afterPuttingBack: true)
+            } else {
+                Log.write("layout: the arrangement changed while it was put back; not taking this one")
+            }
         } else {
             await check()
         }

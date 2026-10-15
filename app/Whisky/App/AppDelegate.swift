@@ -55,7 +55,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         arranger.spacer = spacer
         memory = LayoutMemory(model: model, arranger: arranger)
-        memory.onRemember = { [weak self] keys in self?.presets.syncActive(keys) }
+        memory.onRemember = { [weak self] keys, afterPuttingBack in self?.presets.syncActive(keys, afterPuttingBack: afterPuttingBack) }
         presets.onSwitch = { [weak self] preset in self?.switchTo(preset) }
         presets.start()
         editor = LayoutEditorController(model: model, arranger: arranger)
@@ -206,8 +206,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func restoreLayoutFromMenu() { restoreLayout() }
 
     private func restoreLayout() {
+        // Asked for now: it replaces any automatic put-back still waiting.
+        let previous = putBackTask
+        previous?.cancel()
+        putBackTask = nil
         Task {
-            if case .failure(let failure) = await restoreArrangement(pausingForUser: false) {
+            await previous?.value
+            if case .failure(let failure) = await restoreArrangement(automatic: false) {
                 ArrangeAlert.show(action: "把圖示排回你排好的版面", failure: failure)
             }
         }
@@ -425,19 +430,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         await spacer.start()
         if spacer.isActive {
             // Let the menu bar finish laying out the new spacer before judging (measured: a second after creation
-            // a neighbour was still on the wrong side; two seconds later it was right), and look twice.
+            // a neighbour was still on the wrong side; two seconds later it was right), and look twice. While the
+            // menu bar is hidden (a full-screen app) nothing can be judged: wait for it.
             try? await Task.sleep(for: .milliseconds(1500))
-            var matches = await memory.runMatchesArrangement()
-            if !matches {
+            var check = await memory.checkRunAtLaunch()
+            if check == .differs {
                 try? await Task.sleep(for: .milliseconds(1500))
-                matches = await memory.runMatchesArrangement()
+                check = await memory.checkRunAtLaunch()
             }
-            if matches {
+            var waited = 0
+            while check == .undecided, waited < 300 {
+                try? await Task.sleep(for: .seconds(2))
+                waited += 2
+                check = await memory.checkRunAtLaunch()
+            }
+            switch check {
+            case .matches:
                 if !spacer.isExpanded { spacer.setExpanded(true) }
-            } else if placesRunAtLaunch {
+                presets.confirmPending()
+            case .differs where placesRunAtLaunch:
                 applyGlassPlacement()
-                await placeRunWhenIdle()
-            } else {
+                requestPutBack(status: "正在排回你的版面，先別動滑鼠")
+            case .differs, .undecided:
+                // Fail open: arranged items AppKit put left of the spacer must not stay off the screen.
+                spacer.setExpanded(false)
                 Log.write("spacer: left collapsed until the arrangement is put back")
                 memory.scheduleCheck(after: .seconds(2))
             }
@@ -456,41 +472,59 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Waits until the mouse and keyboard have been still for 3 s (moving items takes the pointer over for a few
     /// seconds) and the menu bar is showing, then puts the arrangement back the reliable way. Gives up after ten
     /// minutes and leaves the drift notice instead.
-    private func placeRunWhenIdle() async {
-        Log.write("spacer: not where the arrangement starts; will put it back once the user is idle")
-        await putBackWhenIdle(status: "正在排回你的版面，先別動滑鼠")
+    /// The one automatic put-back under way (or waiting for the user to be idle). A new request replaces it: two at
+    /// once would interleave their drags, and one finishing late would overwrite the arrangement asked for since.
+    private var putBackTask: Task<Void, Never>?
+
+    private func requestPutBack(status: String) {
+        let previous = putBackTask
+        previous?.cancel()
+        putBackTask = Task { [weak self] in
+            await previous?.value
+            guard !Task.isCancelled else { return }
+            await self?.putBackWhenIdle(status: status)
+        }
     }
 
     /// Waits until the user has left the mouse and keyboard alone for 5 s (and the menu bar shows, nothing else is
     /// moving, Whisky Bar is closed), then puts the remembered arrangement in place. Gives up after ten minutes and
     /// leaves the drift notice instead.
     private func putBackWhenIdle(status: String) async {
-        guard await Arranger.waitUntilUserIdle(5) else {
-            Log.write("layout: still not put back after ten minutes; the drift notice offers it")
-            memory.scheduleCheck(after: .zero)
+        Log.write("layout: will put the arrangement in place once the user is idle")
+        let deadline = ContinuousClock.now + .seconds(600)
+        var ready = false
+        while !Task.isCancelled, ContinuousClock.now < deadline {
+            guard await Arranger.waitUntilUserIdle(5, timeout: deadline - ContinuousClock.now) else { break }
+            if arranger.isMenuBarShown(), !arranger.isBusy, !bar.isOpen {
+                ready = true
+                break
+            }
+            try? await Task.sleep(for: .seconds(1))
+        }
+        guard ready, !Task.isCancelled else {
+            if !Task.isCancelled {
+                Log.write("layout: still not put back after ten minutes; the drift notice offers it")
+                memory.scheduleCheck(after: .zero)
+            }
             return
         }
-        while !arranger.isMenuBarShown() || arranger.isBusy || bar.isOpen {
-            try? await Task.sleep(for: .seconds(1))
-            _ = await Arranger.waitUntilUserIdle(5)
-        }
         Log.write("layout: putting the arrangement in place (idle \(Int(Arranger.userIdleSeconds)) s)")
-        await restoreArrangement(pausingForUser: true, status: status)
+        await restoreArrangement(automatic: true, status: status)
     }
 
     /// The conditions changed, or the user picked a preset: its arrangement becomes the one to keep.
     private func switchTo(_ preset: LayoutPreset) {
         guard !preset.keys.isEmpty else { return }
         memory.saved = preset.keys
-        Task { await putBackWhenIdle(status: "換成「\(preset.name)」版面，先別動滑鼠") }
+        requestPutBack(status: "換成「\(preset.name)」版面，先別動滑鼠")
     }
 
     /// Puts the remembered arrangement back, showing it at the notch while it happens.
     @discardableResult
-    private func restoreArrangement(pausingForUser: Bool, status: String = "正在排回你的版面，先別動滑鼠") async -> Result<Int, ItemMover.Failure> {
+    private func restoreArrangement(automatic: Bool, status: String = "正在排回你的版面，先別動滑鼠") async -> Result<Int, ItemMover.Failure> {
         bar.showStatus(status)
-        arranger.pausesForUser = pausingForUser
-        let result = await memory.restore()
+        arranger.pausesForUser = automatic
+        let result = await memory.restore(automatic: automatic)
         arranger.pausesForUser = false
         bar.showStatus(nil)
         applyGlassPlacement()
