@@ -42,6 +42,11 @@ enum WindowList {
         Set(windows(onScreenOnly: true).map(\.id))
     }
 
+    /// Every on-screen window, for telling what an item opened (`PopupDetection`).
+    static func onscreenWindows() -> [PopupDetection.Window] {
+        windows(onScreenOnly: true).map { PopupDetection.Window(id: $0.id, pid: $0.ownerPID, layer: $0.layer, frame: $0.frame) }
+    }
+
     /// Whether any app has a menu open (menus sit exactly at the pop-up menu level; some apps keep
     /// unrelated windows at higher levels all the time, so "at least" would always be true).
     static func isMenuOpen() -> Bool {

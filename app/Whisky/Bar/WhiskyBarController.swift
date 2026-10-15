@@ -108,6 +108,7 @@ final class WhiskyBarController {
     // MARK: - Actions
 
     private func open(_ item: BarItem, fromKeyboard: Bool = false) {
+        model.recordUse(item.scanned.key)
         // Drop the menu from the menu bar, as the item itself would: under the pointer, or under the panel's left edge
         // when the keyboard chose the item.
         let panelFrame = presenter?.window?.frame ?? NSRect(origin: NSEvent.mouseLocation, size: .zero)
@@ -149,6 +150,7 @@ final class WhiskyBarController {
     }
 
     private func press(_ item: BarItem) {
+        model.recordUse(item.scanned.key)
         close()
         Task { await activator.press(item.scanned) }
     }

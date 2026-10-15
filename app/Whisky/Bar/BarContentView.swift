@@ -87,18 +87,18 @@ struct BarContentView: View {
 
     @ViewBuilder
     private var sections: some View {
-        let hidden = model.filteredItems.filter { !$0.isOff }
-        let off = model.filteredItems.filter(\.isOff)
+        let sections = model.sections
         if !model.hasScanned {
             message("正在讀取選單列…")
         } else if model.items.isEmpty {
             message("所有圖示都看得到")
-        } else if hidden.isEmpty, off.isEmpty {
+        } else if sections.all.isEmpty {
             message("找不到「\(model.query)」")
         } else {
             VStack(alignment: .leading, spacing: 2) {
-                if !hidden.isEmpty { section(style == .notch ? "瀏海後面" : "藏起來的", hidden) }
-                if !off.isEmpty { section("不在選單列上", off) }
+                if !sections.frequent.isEmpty { section("常用", sections.frequent) }
+                if !sections.hidden.isEmpty { section(style == .notch ? "瀏海後面" : "藏起來的", sections.hidden) }
+                if !sections.off.isEmpty { section("不在選單列上", sections.off) }
             }
         }
     }

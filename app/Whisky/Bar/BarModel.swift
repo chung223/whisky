@@ -61,8 +61,26 @@ final class BarModel {
         }
     }
 
-    var selectedItem: BarItem? {
+    /// What Whisky Bar shows, in order: the most used items first, then the hidden ones, then the ones not in the
+    /// menu bar. Each item appears once.
+    struct Sections {
+        var frequent: [BarItem] = []
+        var hidden: [BarItem] = []
+        var off: [BarItem] = []
+
+        var all: [BarItem] { frequent + hidden + off }
+    }
+
+    var sections: Sections {
         let list = filteredItems
+        let frequent = frequentKeys.compactMap { key in list.first { $0.scanned.key == key } }
+        let frequentIDs = Set(frequent.map(\.id))
+        let rest = list.filter { !frequentIDs.contains($0.id) }
+        return Sections(frequent: frequent, hidden: rest.filter { !$0.isOff }, off: rest.filter(\.isOff))
+    }
+
+    var selectedItem: BarItem? {
+        let list = sections.all
         return list.indices.contains(selection) ? list[selection] : nil
     }
 
@@ -84,12 +102,34 @@ final class BarModel {
         didSet { UserDefaults.standard.set(showsRealImages, forKey: "showsRealImages") }
     }
 
+    /// The items opened most (and most recently) from Whisky Bar, shown first.
+    private(set) var frequentKeys: [String] = []
+    @ObservationIgnored private var uses: [String: [Date]] = [:]
+    private static let usesKey = "itemUses"
+
+    func recordUse(_ key: String) {
+        uses[key] = UsageRanking.recording(Date(), in: uses[key] ?? [])
+        let stored = uses.mapValues { $0.map(\.timeIntervalSince1970) }
+        UserDefaults.standard.set(stored, forKey: Self.usesKey)
+        updateFrequent()
+    }
+
+    private func updateFrequent() {
+        let keys = Set(items.map(\.scanned.key))
+        let top = UsageRanking.top(uses, among: keys, now: Date())
+        // Only worth a row of its own when there's a crowd to skip.
+        frequentKeys = items.count > 8 ? top : []
+    }
+
     @ObservationIgnored private let scanner = MenuBarScanner()
     @ObservationIgnored private var isScanning = false
     @ObservationIgnored private var glyphCache: [String: (width: CGFloat, glyph: Glyph)] = [:]
 
     init() {
         showsRealImages = UserDefaults.standard.bool(forKey: "showsRealImages")
+        if let stored = UserDefaults.standard.dictionary(forKey: Self.usesKey) as? [String: [Double]] {
+            uses = stored.mapValues { $0.map(Date.init(timeIntervalSince1970:)) }
+        }
     }
 
     func refresh(captureGlyphs: Bool) async {
@@ -123,6 +163,7 @@ final class BarModel {
             return BarItem(scanned: item, appIcon: icon, glyph: glyph)
         }
         hasScanned = true
+        updateFrequent()
 
         if captureGlyphs, showsRealImages {
             await captureMissingGlyphs()

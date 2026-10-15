@@ -83,23 +83,52 @@ final class ItemActivator {
         // a popover opened while the item's window is still being replaced is left orphaned on screen.
         try? await Task.sleep(for: .milliseconds(600))
 
-        let before = WindowList.onscreenWindowIDs(ownedBy: item.pid)
+        let before = Set(WindowList.onscreenWindows().map(\.id))
+        let itemMidX = WindowList.statusFrames(inMenuBarRowOnly: true)[windowID]?.midX ?? 0
         var opened: Set<UInt32> = []
         if await axPress(item) == AXError.success.rawValue {
-            opened = await waitForNewWindows(of: item.pid, besides: before, timeout: .milliseconds(600))
+            opened = await waitForPopup(near: itemMidX, of: item, besides: before, timeout: .milliseconds(1000))
         }
         if opened.isEmpty, let frame = WindowList.statusFrames(inMenuBarRowOnly: true)[windowID] {
             // Some items only react to a real click.
             await Task.detached(priority: .userInitiated) { Self.click(windowID: windowID, at: CGPoint(x: frame.midX, y: frame.midY)) }.value
-            opened = await waitForNewWindows(of: item.pid, besides: before, timeout: .milliseconds(800))
+            opened = await waitForPopup(near: itemMidX, of: item, besides: before, timeout: .milliseconds(1200))
         }
         Log.write("open \(item.id): shown for a moment, opened \(opened.count) window(s)")
         if opened.isEmpty {
+            logNewWindows(besides: before, for: item)
             NSSound.beep()
         } else {
             await waitUntilClosed(opened)
         }
         _ = await arranger.sendAwayWindow(windowID, label: "put \(item.id) back")
+    }
+
+    /// Waits for a dropdown, popover or menu near the item, from any process (some apps draw their dropdown from a
+    /// helper process, so watching only the item's owner misses it).
+    private func waitForPopup(near itemMidX: CGFloat, of item: ScannedItem, besides before: Set<UInt32>, timeout: Duration) async -> Set<UInt32> {
+        let ownPID = ProcessInfo.processInfo.processIdentifier
+        let statusLevel = Int(CGWindowLevelForKey(.statusWindow))
+        let menuBarHeight = NSScreen.screens.first.map { $0.safeAreaInsets.top > 0 ? $0.safeAreaInsets.top : NSStatusBar.system.thickness } ?? 24
+        let deadline = ContinuousClock.now + timeout
+        while ContinuousClock.now < deadline {
+            let new = WindowList.onscreenWindows().filter { !before.contains($0.id) }
+            let popups = PopupDetection.popups(among: new, itemMidX: itemMidX, menuBarHeight: menuBarHeight, statusLevel: statusLevel,
+                                               excludingPID: item.pid == ownPID ? nil : ownPID)
+            if !popups.isEmpty {
+                Log.write("open \(item.id): opened \(popups.map { "\($0.id) pid \($0.pid) layer \($0.layer) \(Int($0.frame.width))×\(Int($0.frame.height))" })")
+                return Set(popups.map(\.id))
+            }
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        return []
+    }
+
+    /// Nothing recognisable opened: record what did appear, to learn how this app shows its dropdown.
+    private func logNewWindows(besides before: Set<UInt32>, for item: ScannedItem) {
+        let new = WindowList.onscreenWindows().filter { !before.contains($0.id) }.prefix(6)
+        let described = new.map { "\($0.id) pid \($0.pid)\($0.pid == item.pid ? " (item's app)" : "") layer \($0.layer) at \(Int($0.frame.minX)),\(Int($0.frame.minY)) \(Int($0.frame.width))×\(Int($0.frame.height))" }
+        Log.write("open \(item.id): nothing recognised as opened; new windows: \(described.isEmpty ? "none" : described.joined(separator: "; "))")
     }
 
     /// Waits until none of `windows` is on screen any more (the user closed the popover or menu), for at most 15 minutes.
