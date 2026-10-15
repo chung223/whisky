@@ -104,6 +104,13 @@ struct BarContentView: View {
         }
     }
 
+    /// Poured out of the notch, items flow in one after another (top row first), unless searching or with Reduce
+    /// Motion on.
+    private func cascadeIndex(of item: BarItem) -> Int? {
+        guard style == .notch, model.query.isEmpty, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { return nil }
+        return model.sections.all.firstIndex { $0.id == item.id }
+    }
+
     private func section(_ title: String, _ items: [BarItem]) -> some View {
         VStack(alignment: .leading, spacing: 3) {
             Text("\(title) · \(items.count)")
@@ -116,6 +123,7 @@ struct BarContentView: View {
                     BarCell(
                         item: item,
                         style: style,
+                        cascadeIndex: cascadeIndex(of: item),
                         isSelected: model.isUsingKeyboard && model.selectedItem?.id == item.id,
                         actions: actions,
                         onHover: { hovering in
@@ -214,8 +222,21 @@ private struct BarCell: View {
     let isSelected: Bool
     let actions: BarActions
     let onHover: (Bool) -> Void
+    /// Its turn in the pour (nil: shown at once).
+    let cascadeIndex: Int?
 
     @State private var isHovered = false
+    @State private var hasAppeared: Bool
+
+    init(item: BarItem, style: BarStyle, cascadeIndex: Int?, isSelected: Bool, actions: BarActions, onHover: @escaping (Bool) -> Void) {
+        self.item = item
+        self.style = style
+        self.cascadeIndex = cascadeIndex
+        self.isSelected = isSelected
+        self.actions = actions
+        self.onHover = onHover
+        _hasAppeared = State(initialValue: cascadeIndex == nil)
+    }
 
     var body: some View {
         Button { actions.open(item) } label: {
@@ -231,6 +252,12 @@ private struct BarCell: View {
                 .contentShape(.rect)
         }
         .buttonStyle(.plain)
+        .opacity(hasAppeared ? 1 : 0)
+        .offset(y: hasAppeared ? 0 : -5)
+        .onAppear {
+            guard !hasAppeared, let cascadeIndex else { return }
+            withAnimation(.easeOut(duration: 0.22).delay(0.08 + Double(min(cascadeIndex, 40)) * 0.012)) { hasAppeared = true }
+        }
         .onHover { hovering in
             isHovered = hovering
             onHover(hovering)

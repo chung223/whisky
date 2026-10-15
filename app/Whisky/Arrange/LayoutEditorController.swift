@@ -46,7 +46,7 @@ final class LayoutEditorController: NSObject, NSWindowDelegate {
         guard !draft.isApplying else { return }
         await model.refresh(captureGlyphs: false)
         let drawableMinX = MenuBarGeometry.current().displays.first?.drawableMinX ?? 0
-        draft.load(scan: model.lastScan, anchorFrame: arranger.anchorWindowFrame(), drawableMinX: drawableMinX,
+        draft.load(scan: model.lastScan, anchorFrame: arranger.runBoundary(), drawableMinX: drawableMinX,
                    menuBarShown: arranger.isMenuBarShown())
         draft.status = .idle
         draft.note = nil
@@ -82,7 +82,7 @@ final class LayoutEditorController: NSObject, NSWindowDelegate {
             self?.draft.status = .applying(done: done, total: total)
         }
         let drawableMinX = MenuBarGeometry.current().displays.first?.drawableMinX ?? 0
-        draft.load(scan: model.lastScan, anchorFrame: arranger.anchorWindowFrame(), drawableMinX: drawableMinX,
+        draft.load(scan: model.lastScan, anchorFrame: arranger.runBoundary(), drawableMinX: drawableMinX,
                    menuBarShown: arranger.isMenuBarShown())
         switch result {
         case .success(let moves):

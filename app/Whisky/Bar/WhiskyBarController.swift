@@ -48,8 +48,15 @@ final class WhiskyBarController {
     }
 
     func start() {
+        notch.onMenuRequest = { [weak self] in self?.onNotchMenu?() }
+        notch.onScreensChange = { [weak self] in self?.onScreensChange?() }
         if opensFromNotch { notch.install() }
     }
+
+    /// Right click on the notch.
+    var onNotchMenu: (() -> Void)?
+    /// Displays changed (the notch came or went).
+    var onScreensChange: (() -> Void)?
 
     var isOpen: Bool { presenter?.isOpen == true }
 

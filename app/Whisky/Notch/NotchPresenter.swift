@@ -38,6 +38,9 @@ final class NotchPresenter: BarPresenter {
     private var hoverTask: Task<Void, Never>?
     private var settleTask: Task<Void, Never>?
     private var screenObserver: NSObjectProtocol?
+    /// Right click (or ⌃-click) on the notch: Whisky's menu, which the glass used to carry.
+    var onMenuRequest: (() -> Void)?
+    var onScreensChange: (() -> Void)?
 
     init(model: BarModel, actions: BarActions, isHoverSuppressed: @escaping () -> Bool, onOpenRequest: @escaping () -> Void) {
         self.model = model
@@ -59,7 +62,10 @@ final class NotchPresenter: BarPresenter {
         screenObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.updateGeometry() }
+            MainActor.assumeIsolated {
+                self?.updateGeometry()
+                self?.onScreensChange?()
+            }
         }
         updateGeometry()
     }
@@ -126,7 +132,8 @@ final class NotchPresenter: BarPresenter {
             self.state.hiddenCount = self.model.items.filter { !$0.isOff }.count
             self.setPhase(.peek)
             Task {
-                await self.model.refresh(captureGlyphs: false)
+                // Capture the real images now, so they are ready if the click comes.
+                await self.model.refresh(captureGlyphs: true)
                 self.state.hiddenCount = self.model.items.filter { !$0.isOff }.count
             }
             await self.collapseWhenPointerLeaves()
@@ -164,6 +171,7 @@ final class NotchPresenter: BarPresenter {
 
     /// Grows the window at once (the shape animates inside it) and shrinks it once the shape has finished shrinking.
     private func setPhase(_ phase: NotchState.Phase) {
+        if phase == .peek, state.phase != .peek { state.pourStart = Date() }
         let old = state.shapeSize(for: state.phase)
         state.phase = phase
         panel?.hasShadow = phase == .open
@@ -213,6 +221,10 @@ final class NotchPresenter: BarPresenter {
         container.onEnter = { [weak self] in self?.pointerEntered() }
         container.onExit = { [weak self] in self?.pointerExited() }
         container.onClick = { [weak self] in self?.clicked() }
+        container.onRightClick = { [weak self] in
+            guard let self, self.state.phase != .open else { return }
+            self.onMenuRequest?()
+        }
         let hosting = NSHostingView(rootView: NotchRootView(state: state, model: model, actions: actions) { [weak self] size in
             guard let self, self.state.contentSize != size else { return }
             let old = self.state.shapeSize(for: self.state.phase)
@@ -239,6 +251,8 @@ final class NotchState {
     /// Whisky Bar's content, measured while open.
     var contentSize = CGSize(width: BarContentView.width, height: 160)
     var hiddenCount = 0
+    /// When the hover state began: the glass in it pours from then.
+    var pourStart = Date.distantPast
 
     var bottomRadius: CGFloat {
         switch phase {
@@ -280,10 +294,8 @@ struct NotchRootView: View {
                 .frame(width: size.width, height: size.height)
             if state.phase == .peek {
                 HStack(spacing: 4) {
-                    Image(nsImage: GlassIcon.image(fill: 1))
-                        .renderingMode(.template)
-                        .resizable()
-                        .frame(width: 14, height: 14)
+                    PouringGlass(start: state.pourStart)
+                        .frame(width: 15, height: 15)
                     Text("\(state.hiddenCount)")
                         .font(.system(size: 11, weight: .semibold))
                         .monospacedDigit()
@@ -304,6 +316,30 @@ struct NotchRootView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .animation(spring, value: state.phase)
         .animation(spring, value: state.contentSize)
+    }
+}
+
+/// Whisky's glass being filled: the bottle tips in, the whisky rises with a ripple (the menu bar glass's animation).
+struct PouringGlass: View {
+    let start: Date
+    private static let duration: TimeInterval = 0.65
+
+    var body: some View {
+        if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            glass(GlassIcon.image(fill: 1))
+        } else {
+            TimelineView(.animation(minimumInterval: 1.0 / 60, paused: Date().timeIntervalSince(start) > Self.duration + 0.1)) { context in
+                let t = min(1, max(0, context.date.timeIntervalSince(start) / Self.duration))
+                glass(t >= 1 ? GlassIcon.image(fill: 1) : GlassAnimator.pourFrame(CGFloat(t)))
+            }
+        }
+    }
+
+    private func glass(_ image: NSImage) -> some View {
+        Image(nsImage: image)
+            .renderingMode(.template)
+            .resizable()
+            .foregroundStyle(.white)
     }
 }
 
@@ -376,6 +412,7 @@ final class NotchContainerView: NSView {
     var onEnter: () -> Void = {}
     var onExit: () -> Void = {}
     var onClick: () -> Void = {}
+    var onRightClick: () -> Void = {}
     private var trackingArea: NSTrackingArea?
 
     override func updateTrackingAreas() {
@@ -392,7 +429,10 @@ final class NotchContainerView: NSView {
     }
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-    override func mouseDown(with event: NSEvent) { onClick() }
+    override func mouseDown(with event: NSEvent) {
+        event.modifierFlags.contains(.control) ? onRightClick() : onClick()
+    }
+    override func rightMouseDown(with event: NSEvent) { onRightClick() }
     override func mouseEntered(with event: NSEvent) { onEnter() }
     override func mouseExited(with event: NSEvent) { onExit() }
 }

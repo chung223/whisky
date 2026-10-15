@@ -13,6 +13,7 @@ final class SettingsModel {
         var setRecordingHotKey: (Bool) -> Void = { _ in }
         var setLaunchAtLogin: (Bool) -> Void = { _ in }
         var setOpensFromNotch: (Bool) -> Void = { _ in }
+        var setGlassInNotch: (Bool) -> Void = { _ in }
         var setShowsRealImages: (Bool) -> Void = { _ in }
         /// Returns a problem to show, or nil.
         var setSpacer: (Bool) async -> String? = { _ in nil }
@@ -45,6 +46,7 @@ final class SettingsModel {
     var loginNeedsApproval = false
     var showsRealImages = false
     var opensFromNotch = true
+    var glassInNotch = false
     var hasNotch = false
     var spacerOn = false
     var spacerBusy = false

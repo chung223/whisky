@@ -77,7 +77,7 @@ final class LayoutDraft {
         visible = movable.filter { $0.placement == .shown }.sorted { $0.frame.minX < $1.frame.minX }.map(entry)
         hidden = movable.filter { $0.placement == .hidden }.sorted { $0.frame.minX < $1.frame.minX }.map(entry)
         off = scan.filter { $0.placement == .off }.map(entry)
-        fixed = scan.filter { $0.placement == .shown && $0.frame.minX > anchorMinX }.sorted { $0.frame.minX < $1.frame.minX }.map(entry)
+        fixed = scan.filter { $0.placement == .shown && $0.frame.minX >= anchorMinX - 1 }.sorted { $0.frame.minX < $1.frame.minX }.map(entry)
         capacity = anchorFrame.map { max(0, $0.minX - drawableMinX) } ?? 0
         savedVisible = visible.map(\.id)
     }

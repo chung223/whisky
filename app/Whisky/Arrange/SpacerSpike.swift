@@ -10,15 +10,21 @@ final class SpacerSpike {
     private let spacer: SpacerController
     private var testItems: [(item: NSStatusItem, windowID: UInt32?)] = []
     private var failures = 0
+    /// Whether Whisky's glass is in the menu bar (it leaves between moves when it lives in the notch).
+    private var isGlassShown: () -> Bool = { true }
 
     init(arranger: Arranger, spacer: SpacerController) {
         self.arranger = arranger
         self.spacer = spacer
     }
 
-    func run() async {
+    func run(isGlassShown: @escaping () -> Bool = { true }) async {
         guard !arranger.isBusy else { Log.write("spike: busy"); return }
-        Log.write("spike: start")
+        self.isGlassShown = isGlassShown
+        failures = 0
+        Log.write("spike: start\(arranger.revealAnchor != nil ? " (glass in the notch)" : "")")
+        // The glass may just have left the menu bar: let it finish making room before taking the "before" picture.
+        if arranger.revealAnchor != nil { try? await Task.sleep(for: .seconds(2)) }
         let before = Snapshot.take(excluding: [])
         let hadSpacer = spacer.isActive
         defer { Log.write("spike: end, \(failures) failure(s)") }
@@ -49,6 +55,7 @@ final class SpacerSpike {
         await settle()
         checkRun(expect: [spacerID, ids[0], ids[1]], label: "run is spacer, T1, T2")
         checkOnlyDrawn([ids[0], ids[1]], label: "with the spacer expanded")
+        await checkGlassAway(order: [spacerID, ids[0], ids[1]], label: "T1, T2")
 
         // 3. A run item gets wider (like a clock or a percentage changing): nothing else may appear.
         testItems[1].item.length = 84
@@ -59,6 +66,7 @@ final class SpacerSpike {
         _ = await strictRebuild([ids[1], ids[0]])
         await settle()
         checkRun(expect: [spacerID, ids[1], ids[0]], label: "run is spacer, T2, T1")
+        await checkGlassAway(order: [spacerID, ids[1], ids[0]], label: "T2, T1")
 
         // 5. Hide one: T2 is re-pinned away from the run (it ends up left of the spacer, off the screen).
         _ = await strictRebuild([ids[0]])
@@ -71,6 +79,7 @@ final class SpacerSpike {
         await settle()
         checkRun(expect: [spacerID, ids[0], ids[3]], label: "run is spacer, T1, T4")
         checkOnlyDrawn([ids[0], ids[3]], label: "after showing T4")
+        await checkGlassAway(order: [spacerID, ids[0], ids[3]], label: "T1, T4")
 
         // 7. Send T4 away (the usual, non-strict plan picks "send away" here), with the spacer expanded.
         var own = Set(ids)
@@ -131,6 +140,17 @@ final class SpacerSpike {
         check(label, run == expect, detail: "run \(run)")
     }
 
+    /// With the glass living in the notch: once the moves are done it leaves the menu bar, and the run keeps its order.
+    private func checkGlassAway(order: [UInt32], label: String) async {
+        guard arranger.revealAnchor != nil else { return }
+        releaseGlass()
+        try? await Task.sleep(for: .seconds(1))
+        check("the glass left the menu bar after the moves", !isGlassShown())
+        let frames = WindowList.statusFrames(inMenuBarRowOnly: true)
+        let sorted = order.filter { frames[$0] != nil }.sorted { frames[$0]!.minX < frames[$1]!.minX }
+        check("order kept without the glass (\(label))", sorted == order, detail: "\(sorted)")
+    }
+
     /// Left of Whisky's icon, macOS draws exactly the expected test items: none of the user's items slipped in.
     private func checkOnlyDrawn(_ expected: Set<UInt32>, label: String) {
         let windows = WindowList.statusWindows().filter { $0.frame.midY >= -1 && $0.frame.midY < 40 }
@@ -144,13 +164,28 @@ final class SpacerSpike {
               detail: "drawn \(drawn.sorted()), expected \(expected.sorted()); \(spacer.summary)")
     }
 
+    /// Waits for the menu bar to settle; with the glass living in the notch, brings it back first, because the
+    /// checks look for the run left of it (`releaseGlass` afterwards).
     private func settle(seconds: Double = 1.5) async {
+        if arranger.revealAnchor != nil, !holdingGlass {
+            await arranger.holdAnchor()
+            holdingGlass = true
+        }
         try? await Task.sleep(for: .seconds(seconds))
+    }
+
+    private var holdingGlass = false
+
+    private func releaseGlass() {
+        guard holdingGlass else { return }
+        holdingGlass = false
+        arranger.releaseAnchor()
     }
 
     // MARK: - Tear down
 
     private func tearDown(hadSpacer: Bool, before: Snapshot) async {
+        releaseGlass()
         for entry in testItems { NSStatusBar.system.removeStatusItem(entry.item) }
         for index in 1...4 {
             UserDefaults.standard.removeObject(forKey: "NSStatusItem Preferred Position WhiskyTest\(index)")

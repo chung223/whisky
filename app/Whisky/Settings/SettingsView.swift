@@ -54,6 +54,13 @@ struct SettingsView: View {
                          : "這個螢幕沒有瀏海，從酒杯下方打開。")
                 }
                 .disabled(!model.hasNotch)
+                Toggle(isOn: binding(\.glassInNotch, model.actions.setGlassInNotch)) {
+                    Text("酒杯住在瀏海裡")
+                    Text(model.spacerOn
+                         ? "選單列上不放酒杯，多一格給排好的圖示；只有搬移圖示時酒杯才出來。右鍵點瀏海打開 Whisky 的選單。"
+                         : "要先打開下面的「只顯示排好的圖示」：沒有它的話，酒杯一離開，macOS 就會重排瀏海旁的圖示。")
+                }
+                .disabled(!model.hasNotch || !model.opensFromNotch || !model.spacerOn)
                 Toggle(isOn: binding(\.showsRealImages, model.actions.setShowsRealImages)) {
                     Text("顯示圖示的真實圖案")
                     Text(model.hasScreenRecording

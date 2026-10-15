@@ -69,9 +69,12 @@ final class ItemActivator {
         }
         isShowingTemporarily = true
         arranger.temporarilyShown.insert(windowID)
+        // Keep the glass in the menu bar the whole time (when it lives in the notch): it is where the item is shown.
+        await arranger.holdAnchor()
         defer {
             isShowingTemporarily = false
             arranger.temporarilyShown.remove(windowID)
+            arranger.releaseAnchor()
         }
 
         guard case .success = await arranger.pinWindow(windowID, label: "show \(item.id) for a moment") else {
@@ -86,13 +89,26 @@ final class ItemActivator {
         let before = Set(WindowList.onscreenWindows().map(\.id))
         let itemMidX = WindowList.statusFrames(inMenuBarRowOnly: true)[windowID]?.midX ?? 0
         var opened: Set<UInt32> = []
-        if await axPress(item) == AXError.success.rawValue {
+        // Three ways to click it, gentlest first; the log says which one worked, to learn each app's habits.
+        let pressResult = await axPress(item)
+        if pressResult == AXError.success.rawValue {
             opened = await waitForPopup(near: itemMidX, of: item, besides: before, timeout: .milliseconds(1000))
         }
+        Log.write("open \(item.id): AXPress \(pressResult == AXError.success.rawValue ? "ok" : "failed (\(pressResult))"), \(opened.isEmpty ? "nothing opened" : "opened")")
         if opened.isEmpty, let frame = WindowList.statusFrames(inMenuBarRowOnly: true)[windowID] {
-            // Some items only react to a real click.
+            // A click routed to the item's window, the pointer hidden and put back.
             await Task.detached(priority: .userInitiated) { Self.click(windowID: windowID, at: CGPoint(x: frame.midX, y: frame.midY)) }.value
             opened = await waitForPopup(near: itemMidX, of: item, besides: before, timeout: .milliseconds(1200))
+            Log.write("open \(item.id): routed click \(opened.isEmpty ? "nothing opened" : "opened")")
+        }
+        if opened.isEmpty, let frame = WindowList.statusFrames(inMenuBarRowOnly: true)[windowID] {
+            // Some apps (iStat Menus) ignored both: a plain click, the pointer really moved onto the item and left
+            // there until the dropdown is up, then put back.
+            let saved = CGEvent(source: nil)?.location
+            await Task.detached(priority: .userInitiated) { Self.plainClick(at: CGPoint(x: frame.midX, y: frame.midY)) }.value
+            opened = await waitForPopup(near: itemMidX, of: item, besides: before, timeout: .milliseconds(1500))
+            if let saved { CGWarpMouseCursorPosition(saved) }
+            Log.write("open \(item.id): plain click \(opened.isEmpty ? "nothing opened" : "opened")")
         }
         Log.write("open \(item.id): shown for a moment, opened \(opened.count) window(s)")
         if opened.isEmpty {
@@ -165,6 +181,21 @@ final class ItemActivator {
             try? await Task.sleep(for: .milliseconds(50))
         }
         return []
+    }
+
+    /// An ordinary left click where the pointer is moved to, as a person would make it.
+    nonisolated private static func plainClick(at point: CGPoint) {
+        let source = CGEventSource(stateID: .hidSystemState)
+        if let move = CGEvent(mouseEventSource: source, mouseType: .mouseMoved, mouseCursorPosition: point, mouseButton: .left) {
+            move.post(tap: .cghidEventTap)
+        }
+        usleep(60_000)
+        for type in [CGEventType.leftMouseDown, .leftMouseUp] {
+            guard let event = CGEvent(mouseEventSource: source, mouseType: type, mouseCursorPosition: point, mouseButton: .left) else { continue }
+            event.setIntegerValueField(.mouseEventClickState, value: 1)
+            event.post(tap: .cghidEventTap)
+            usleep(50_000)
+        }
     }
 
     /// A left click routed to the item's window (field 0x33), with the pointer hidden and put back.

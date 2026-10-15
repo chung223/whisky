@@ -76,12 +76,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         registerItemHotKeys()
         wireSettings()
         memory.start()
+        bar.onNotchMenu = { [weak self] in self?.showNotchMenu() }
+        bar.onScreensChange = { [weak self] in self?.applyGlassPlacement() }
         bar.start()
+        applyGlassPlacement()
 
         if permissions.isAccessibilityTrusted {
             Task {
                 await model.refresh(captureGlyphs: false)
                 await spacer.start()
+                applyGlassPlacement()
+                // The real images, ahead of the first time Whisky Bar opens.
+                await model.refresh(captureGlyphs: true)
             }
         } else {
             permissions.requestAccessibility()
@@ -236,7 +242,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             },
             setLaunchAtLogin: { LoginItem.setEnabled($0) },
-            setOpensFromNotch: { [weak self] on in self?.bar.opensFromNotch = on },
+            setOpensFromNotch: { [weak self] on in
+                self?.bar.opensFromNotch = on
+                self?.applyGlassPlacement()
+            },
+            setGlassInNotch: { [weak self] on in self?.glassInNotch = on },
             setShowsRealImages: { [weak self] on in
                 self?.model.showsRealImages = on
                 if on, !Permissions.hasScreenRecording { Permissions.requestScreenRecording() }
@@ -263,6 +273,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.showsRealImages = self.model.showsRealImages
         model.hasNotch = NotchPresenter.isAvailable
         model.opensFromNotch = bar.opensFromNotch
+        model.glassInNotch = glassInNotch
         if !model.spacerBusy { model.spacerOn = spacer.isActive }
         model.watchesLayout = memory.isWatching
         model.savedLayoutCount = memory.saved?.count
@@ -295,8 +306,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Turns the spacer on or off and takes the result as the arrangement. Returns a problem to show, or nil.
     private func setSpacer(_ on: Bool) async -> String? {
+        defer { applyGlassPlacement() }
         if !on {
             arranger.disableSpacer()
+            applyGlassPlacement()
             await memory.remember()
             return nil
         }
@@ -306,6 +319,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         await memory.remember()
         return nil
+    }
+
+    // MARK: - The glass
+
+    private static let glassInNotchKey = "glassInNotch"
+
+    /// The glass lives in the notch: it leaves the menu bar (one more item fits beside the notch) and only shows up
+    /// while items are moved. Needs a notch and Whisky Bar opening from it; otherwise the glass stays in the menu bar.
+    private var glassInNotch: Bool {
+        get { UserDefaults.standard.object(forKey: Self.glassInNotchKey) as? Bool ?? false }
+        set {
+            UserDefaults.standard.set(newValue, forKey: Self.glassInNotchKey)
+            applyGlassPlacement()
+        }
+    }
+
+    private func applyGlassPlacement() {
+        // Only with the spacer: without it, macOS reshuffles the items beside the notch whenever the glass leaves
+        // (measured 2026-10-15), which would undo the user's arrangement every time.
+        let inNotch = glassInNotch && bar.opensFromNotch && NotchPresenter.isAvailable && spacer.isActive
+        if inNotch {
+            arranger.revealAnchor = { [weak self] in self?.statusItem.setShown(true) }
+            arranger.concealAnchor = { [weak self] in self?.statusItem.setShown(false) }
+            if !arranger.isBusy { statusItem.setShown(false) }
+        } else {
+            arranger.revealAnchor = nil
+            arranger.concealAnchor = nil
+            statusItem.setShown(true)
+        }
+    }
+
+    /// Whisky's menu from the notch (right click), for when the glass isn't in the menu bar.
+    private func showNotchMenu() {
+        guard let notch = NotchGeometry.current() else { return }
+        makeMenu().popUp(positioning: nil, at: NSPoint(x: notch.rect.minX + 8, y: notch.rect.minY - 2), in: nil)
     }
 
     // MARK: - URL scheme (automation and testing)
@@ -321,7 +369,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             case ("pin", let key?): Task { _ = await arranger.pin(key: key) }
             case ("unpin", let key?): Task { _ = await arranger.unpin(key: key) }
             case ("diagnose", _): Task { await model.writeDiagnostics() }
-            case ("spike", _): Task { await spike?.run() }
+            case ("spike", _):
+                // whisky://spike?glass=notch runs it with the glass living in the notch (shown only while moving).
+                let inNotch = url.query()?.contains("glass=notch") == true
+                Task {
+                    if inNotch {
+                        // The test brings its own spacer, so set the glass up directly rather than through the setting.
+                        arranger.revealAnchor = { [weak self] in self?.statusItem.setShown(true) }
+                        arranger.concealAnchor = { [weak self] in self?.statusItem.setShown(false) }
+                        statusItem.setShown(false)
+                    }
+                    await spike?.run(isGlassShown: { [weak self] in self?.statusItem.isShown ?? true })
+                    applyGlassPlacement()
+                }
             case ("spacer-on", _): Task { _ = await arranger.enableSpacer() }
             case ("spacer-off", _): arranger.disableSpacer()
             case ("move", _):
@@ -333,6 +393,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             case ("arrange", _): editor.show()
             case ("settings", _): settings.show()
             case ("notch-peek", _): bar.showNotchPeekForTesting()
+            case ("glass", _):
+                // Testing: whisky://glass?shown=0 or 1 hides or shows the glass in the menu bar.
+                statusItem.setShown(url.query()?.contains("shown=1") == true)
             case ("snapshot", _):
                 WindowSnapshot.writeVisibleWindows()
                 // whisky://snapshot?close=1 closes the windows afterwards (testing without leaving them open).
