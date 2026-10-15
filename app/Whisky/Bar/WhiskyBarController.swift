@@ -9,6 +9,10 @@ private final class BarPanel: NSPanel {
 @MainActor
 final class WhiskyBarController {
     var onVisibilityChange: ((Bool) -> Void)?
+    var onRestoreLayout: (() -> Void)?
+    /// Called after the user put an item on the menu bar from here.
+    var onArranged: (() async -> Void)?
+    var onKeepLayout: (() -> Void)?
 
     private let model: BarModel
     private let permissions: Permissions
@@ -115,8 +119,9 @@ final class WhiskyBarController {
         let key = item.scanned.key
         let name = item.tooltip
         Task {
-            if case .failure(let failure) = await arranger.pin(key: key) {
-                ArrangeAlert.show(action: "把「\(name)」放到選單列上", failure: failure)
+            switch await arranger.pin(key: key) {
+            case .success: await onArranged?()
+            case .failure(let failure): ArrangeAlert.show(action: "把「\(name)」放到選單列上", failure: failure)
             }
         }
     }
@@ -147,6 +152,11 @@ final class WhiskyBarController {
                 self?.permissions.requestAccessibility()
                 self?.permissions.openAccessibilitySettings()
             },
+            onRestoreLayout: { [weak self] in
+                self?.close()
+                self?.onRestoreLayout?()
+            },
+            onKeepLayout: { [weak self] in self?.onKeepLayout?() },
             onSizeChange: { [weak self] size in
                 guard let self, let panel = self.panel else { return }
                 self.place(panel, size: size)

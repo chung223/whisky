@@ -105,3 +105,8 @@
 ## [2026-10-15] re | 自我測試擴充：送走、menu mirroring、暫時放回再點
 - 第 7、8 步通過；第 9 步發現兩個問題並修正：自己的 status item 要在主執行緒 AXPress（AppKit 在呼叫端執行動作，曾因此當機一次）、空的選單列上放回圖示前要先收起分隔項目。
 - 測試用 popover 關不掉（推測是排版中被孤立），第 9 步移出自我測試；正式功能放回後多等 600 ms。更新 concepts/platform-verification.md。
+
+## [2026-10-15] query | v0.7：設定視窗、快捷鍵自訂、記住版面
+- 新功能：設定視窗（⌘,）、可錄製的快捷鍵、Whisky Bar 裡 Apple 系統項目用 SF Symbols、記住排好的版面並在跑掉時提醒（不自動移動）。
+- 實測（只讀）：選單列 90 秒內穩定；麥克風指示（AudioVideoModule）會自己插進 Whisky 左邊。版面比對因此改成比順序、不算 Control Center 模組、連續兩次才提醒。
+- 更新 concepts/platform-verification.md、synthesis/roadmap.md、synthesis/whisky-architecture.md（實作現況）。

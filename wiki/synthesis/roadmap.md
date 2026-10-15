@@ -9,7 +9,7 @@ sources:
   - wiki/concepts/macos-menu-bar-platform.md
   - wiki/concepts/menubar-agent-allow-list.md
   - wiki/comparisons/open-source-menu-bar-managers.md
-updated: 2026-10-14
+updated: 2026-10-15
 ---
 
 # Whisky 開發路線圖
@@ -18,7 +18,7 @@ updated: 2026-10-14
 
 **2026-10-14 調整**：使用者的主力機是有瀏海的 14 吋 MacBook Pro，31 個選單列項目只畫出 11 個（[實測](../concepts/platform-verification.md)），在這台上 M1 的「點一下顯示隱藏區」沒有用（顯示出來還是被瀏海擋住）。所以先做 **v0.1：Whisky Bar 加 menu mirroring**（原 M4 的一部分，不用私有 API、不移動項目），再做移動項目（M3）與分隔項目隱藏（M1）。macOS 27 的工作延後。
 
-**進度（2026-10-15）**：v0.1 Whisky Bar + menu mirroring、v0.2 單一項目移動（S3 驗證）、v0.3 排列視窗（拖曳編輯、從 Bartender 匯入、逐步驗證的套用）都已裝在使用者的 Mac 上。v0.5 分隔項目（固定 10000 pt，用假圖示自我測試通過；預設關閉，由使用者打開）與倒酒動畫圖示。v0.6 沒有選單的被藏項目「暫時放回再點」、⌃⌥⌘W、Whisky Bar 搜尋。還沒做：被推到螢幕外的項目的真實圖示（需要暫時展開再擷取）、快捷鍵自訂、Presets／Triggers。開發機是 macOS 26.7，所以先做 26 後端，同時在 M0 用虛擬機驗證 27，確保抽象層不會只適合 26。
+**進度（2026-10-15）**：v0.1 Whisky Bar + menu mirroring、v0.2 單一項目移動（S3 驗證）、v0.3 排列視窗（拖曳編輯、從 Bartender 匯入、逐步驗證的套用）都已裝在使用者的 Mac 上。v0.5 分隔項目（固定 10000 pt，用假圖示自我測試通過；預設關閉，由使用者打開）與倒酒動畫圖示。v0.6 沒有選單的被藏項目「暫時放回再點」、⌃⌥⌘W、Whisky Bar 搜尋。v0.7 設定視窗、快捷鍵自訂、Apple 系統項目用 SF Symbols、記住版面並在跑掉時提醒（使用者按了才排回去，[觀察](../concepts/platform-verification.md)）。還沒做：被推到螢幕外的項目的真實圖示（需要暫時展開再擷取）、單一項目的快捷鍵、Presets／Triggers、移動時遇到全螢幕或切換 Space 就中止。開發機是 macOS 26.7，所以先做 26 後端，同時在 M0 用虛擬機驗證 27，確保抽象層不會只適合 26。
 每個里程碑結束時都要能實際使用，並把新學到的平台行為寫回 wiki。
 
 ## M0：骨架與實驗

@@ -12,6 +12,8 @@ final class Arranger {
     private let anchorNumber: () -> UInt32?
     /// Whisky's spacer, when it exists: hidden items end up left of it, and rebuilds keep it at the run's left end.
     var spacer: SpacerController?
+    /// Items put next to Whisky's icon for a moment (to click them); they aren't part of the user's layout.
+    var temporarilyShown: Set<UInt32> = []
 
     init(model: BarModel, anchorFrame: @escaping () -> NSRect?, anchorNumber: @escaping () -> UInt32?) {
         self.model = model
@@ -162,6 +164,34 @@ final class Arranger {
             return left.filter { $0.frame.minX >= spacer.frame.minX - 1 }.map(\.id)
         }
         return left.filter(\.isOnscreen).map(\.id)
+    }
+
+    struct RowEntry: Equatable {
+        let key: String
+        let isDrawn: Bool
+        /// Control Center's modules: some come and go on their own (the microphone and camera indicator, Now Playing,
+        /// Focus), so they don't count when comparing layouts.
+        let isSystem: Bool
+    }
+
+    /// The menu bar left of Whisky's icon in order, drawn or not: from the spacer when there is one (`isBounded`),
+    /// otherwise from the far left. Whisky's own items, items shown for a moment and windows the last scan didn't
+    /// name are left out. Call after `model.refresh`.
+    func layoutRow() -> (entries: [RowEntry], isBounded: Bool) {
+        let windows = WindowList.statusWindows().filter { $0.frame.midY >= -1 && $0.frame.midY < 40 }
+        guard let anchor = anchorWindowID(), let anchorFrame = windows.first(where: { $0.id == anchor })?.frame else { return ([], false) }
+        var left = windows.filter { $0.id != anchor && $0.frame.maxX <= anchorFrame.minX + 1 }.sorted { $0.frame.minX < $1.frame.minX }
+        var isBounded = false
+        if let spacerID, let spacer = left.first(where: { $0.id == spacerID }) {
+            left = left.filter { $0.frame.minX > spacer.frame.minX }
+            isBounded = true
+        }
+        let items = Dictionary(model.lastScan.compactMap { item in item.windowID.map { ($0, item) } }, uniquingKeysWith: { first, _ in first })
+        let entries = left.compactMap { window -> RowEntry? in
+            guard !temporarilyShown.contains(window.id), let item = items[window.id] else { return nil }
+            return RowEntry(key: item.key, isDrawn: window.isOnscreen, isSystem: BarModel.isSystemOwned(item))
+        }
+        return (entries, isBounded)
     }
 
     /// The items drawn left of Whisky's icon now (not counting the spacer), left to right.

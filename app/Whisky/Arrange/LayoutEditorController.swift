@@ -9,6 +9,8 @@ final class LayoutEditorController: NSObject, NSWindowDelegate {
     private let arranger: Arranger
     private let draft = LayoutDraft()
     private var window: NSWindow?
+    /// Called after an apply went through, to take the new run as the arrangement.
+    var onApplied: (() async -> Void)?
 
     init(model: BarModel, arranger: Arranger) {
         self.model = model
@@ -73,6 +75,7 @@ final class LayoutEditorController: NSObject, NSWindowDelegate {
         switch result {
         case .success(let moves):
             draft.status = .finished(moves: moves)
+            await onApplied?()
         case .failure(let failure):
             // Keep what the user asked for so pressing Apply again retries from where the menu bar is now.
             draft.setVisible(wanted)

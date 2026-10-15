@@ -37,8 +37,8 @@ targets:
       properties:
         CFBundleDisplayName: Whisky
         CFBundleName: Whisky
-        CFBundleShortVersionString: "0.6.0"
-        CFBundleVersion: "6"
+        CFBundleShortVersionString: "0.7.0"
+        CFBundleVersion: "7"
         CFBundleDevelopmentRegion: zh-Hant
         LSMinimumSystemVersion: "26.0"
         LSUIElement: true

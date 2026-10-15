@@ -68,7 +68,11 @@ final class ItemActivator {
             return
         }
         isShowingTemporarily = true
-        defer { isShowingTemporarily = false }
+        arranger.temporarilyShown.insert(windowID)
+        defer {
+            isShowingTemporarily = false
+            arranger.temporarilyShown.remove(windowID)
+        }
 
         guard case .success = await arranger.pinWindow(windowID, label: "show \(item.id) for a moment") else {
             Log.write("open \(item.id): couldn't bring it out; pressing in place")

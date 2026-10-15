@@ -8,12 +8,19 @@ struct WhiskyBarView: View {
     let onActivateApp: (BarItem) -> Void
     let onPin: (BarItem) -> Void
     let onRequestAccessibility: () -> Void
+    let onRestoreLayout: () -> Void
+    let onKeepLayout: () -> Void
     let onSizeChange: (CGSize) -> Void
 
     private let cellWidth: CGFloat = 40
 
     var body: some View {
-        content
+        VStack(alignment: .trailing, spacing: 6) {
+            content
+            if model.isAccessibilityTrusted, let drift = model.layoutDrift {
+                driftLine(drift)
+            }
+        }
             .padding(6)
             .glassEffect(.regular, in: .rect(cornerRadius: 14))
             .fixedSize()
@@ -68,6 +75,25 @@ struct WhiskyBarView: View {
         }
         .font(.caption)
         .padding(.horizontal, 6)
+    }
+
+    /// The run isn't as the user arranged it: offer to put it right, or to keep it this way.
+    private func driftLine(_ drift: LayoutDriftNotice) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "arrow.uturn.backward.circle")
+                .foregroundStyle(.orange)
+            Text(drift.summary)
+                .lineLimit(1)
+                .help(drift.names.joined(separator: "、"))
+            Spacer(minLength: 8)
+            Button("保留現在的", action: onKeepLayout)
+            Button("排回來", action: onRestoreLayout)
+                .buttonStyle(.borderedProminent)
+        }
+        .font(.caption)
+        .controlSize(.small)
+        .padding(.horizontal, 6)
+        .frame(minWidth: 320)
     }
 
     /// Two rows: items behind the notch (menu bar order), then items that aren't in the menu bar at all.
@@ -154,6 +180,10 @@ private struct BarCell: View {
                 .interpolation(.high)
                 .scaledToFit()
                 .frame(height: min(18, glyph.image.size.height))
+        } else if let symbol = item.symbol {
+            Image(systemName: symbol)
+                .font(.system(size: 14, weight: .medium))
+                .frame(width: 20, height: 20)
         } else if let icon = item.appIcon {
             Image(nsImage: icon)
                 .resizable()

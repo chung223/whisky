@@ -11,6 +11,12 @@ struct BarItem: Identifiable {
 
     var isOff: Bool { scanned.placement == .off }
 
+    /// An SF Symbol for Apple's own items, whose owners' app icons say nothing about them.
+    var symbol: String? {
+        SystemItemSymbols.symbol(key: scanned.key, bundleID: scanned.bundleID)
+            .flatMap { NSImage(systemSymbolName: $0, accessibilityDescription: nil) == nil ? nil : $0 }
+    }
+
     var tooltip: String {
         let name = scanned.label == scanned.appName ? scanned.appName : "\(scanned.appName)：\(scanned.label)"
         return isOff ? "\(name)（不在選單列上）" : name
@@ -26,6 +32,8 @@ final class BarModel {
     private(set) var shownItems: [ScannedItem] = []
     @ObservationIgnored private(set) var lastScan: [ScannedItem] = []
     private(set) var hasScanned = false
+    /// Set by `LayoutMemory` when the run isn't as the user arranged it.
+    var layoutDrift: LayoutDriftNotice?
     /// Typed while Whisky Bar is open: filters the items by app name, label or bundle ID.
     var query = "" { didSet { selection = 0 } }
     /// The highlighted item in `filteredItems` once the keyboard is used.

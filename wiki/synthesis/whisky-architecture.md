@@ -193,6 +193,23 @@ app/
   Spikes/                     驗證平台行為的小程式；結果寫回 wiki
 ```
 
+**實作現況（v0.7，2026-10-15）**：上面是最初的提案。實際只有一個 App target 加一個 `WhiskyCore` 套件（純邏輯，Swift Testing），還沒有 XPC service：
+
+```
+app/Whisky/
+  App/         AppDelegate：接線、選單、URL scheme（whisky://）
+  Scanning/    AX 掃描、CGWindowList
+  Activation/  menu mirroring、暫時放回再點
+  Arrange/     ⌘ 拖曳、排列（RebuildPlanner 的兩種動作）、排列視窗、Bartender 匯入、自我測試
+  Layout/      LayoutMemory：記住版面、偵測跑掉
+  MenuBar/     Whisky 圖示（倒酒動畫）、分隔項目
+  Bar/         Whisky Bar（NSPanel + SwiftUI）
+  Settings/    設定視窗、快捷鍵錄製
+  Capture/     ScreenCaptureKit 擷取圖示
+  Support/     快捷鍵（Carbon）、權限、登入項目、記錄、診斷
+app/Packages/WhiskyCore/   幾何、比對、移動計畫、版面比對、快捷鍵、系統圖示對照
+```
+
 ## 9. 驗證策略
 
 - **單元測試**：`WhiskyModel` 與 `LayoutEngine` 用 Swift Testing，涵蓋：
