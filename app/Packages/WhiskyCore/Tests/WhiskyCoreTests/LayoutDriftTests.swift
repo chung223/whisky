@@ -47,4 +47,19 @@ struct LayoutDriftTests {
         #expect(difference?.reordered == false)
         #expect(difference?.count == 2)
     }
+
+    @Test("Remembering keeps arranged items that are missing for now, in place")
+    func mergeKeepsAbsent() {
+        // iStat didn't answer the scan: its two items must stay in the arrangement.
+        let merged = LayoutDrift.merge(current: ["wiki", "plaud", "usb", "aldente"],
+                                       previous: ["wiki", "plaud", "usb", "memory", "cpu", "aldente"],
+                                       present: ["wiki", "plaud", "usb", "aldente"])
+        #expect(merged == ["wiki", "plaud", "usb", "memory", "cpu", "aldente"])
+    }
+
+    @Test("Items the user moved out of the run are dropped; missing ones at the start stay first")
+    func mergeDropsMovedOut() {
+        let merged = LayoutDrift.merge(current: ["b", "c"], previous: ["gone", "a", "b", "c"], present: ["a", "b", "c"])
+        #expect(merged == ["gone", "b", "c"])
+    }
 }

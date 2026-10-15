@@ -144,6 +144,12 @@ struct SettingsView: View {
                 if let problem = model.spacerProblem {
                     note(problem, warning: true)
                 }
+                if model.spacerOn {
+                    Toggle(isOn: binding(\.placesRunAtLaunch, model.actions.setPlacesRunAtLaunch)) {
+                        Text("重新啟動後自動排回來")
+                        Text("開機或更新後，分隔項目偶爾會被放錯位置。等你停下滑鼠幾秒後自動排好；關掉的話只提醒你。")
+                    }
+                }
 
                 Toggle(isOn: binding(\.watchesLayout, model.actions.setWatchesLayout)) {
                     Text("版面跑掉時提醒我")

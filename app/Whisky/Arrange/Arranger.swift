@@ -169,10 +169,10 @@ final class Arranger {
     // MARK: - Whole run
 
     /// Makes `visible` (left to right) the run next to Whisky's icon, with the spacer at its left end when there is one.
-    func apply(visible: [ScannedItem], progress: @escaping @MainActor (Int, Int) -> Void) async -> Result<Int, ItemMover.Failure> {
+    func apply(visible: [ScannedItem], strays: [UInt32] = [], progress: @escaping @MainActor (Int, Int) -> Void) async -> Result<Int, ItemMover.Failure> {
         let wanted = visible.compactMap(\.windowID)
         // A collapsed spacer can sit at the notch boundary, where macOS reshuffles items: place it afresh first.
-        if let spacer, spacer.isActive, !spacer.isExpanded { return await placeRun(wanted, progress: progress) }
+        if let spacer, spacer.isActive, !spacer.isExpanded { return await placeRun(wanted, alsoSendAway: strays, progress: progress) }
         return await rebuild(wanted: wanted, progress: progress)
     }
 
@@ -180,7 +180,10 @@ final class Arranger {
     /// the open part of the menu bar), is expanded so everything else leaves the screen, then the run is brought back
     /// in order (re-pins only). Pinning the run first left the 1 pt spacer at the notch boundary, where macOS
     /// reshuffles items: it ended up far left with dozens of hidden items in the run (measured 2026-10-16).
-    func placeRun(_ wanted: [UInt32], progress: @escaping @MainActor (Int, Int) -> Void = { _, _ in }) async -> Result<Int, ItemMover.Failure> {
+    /// - Parameter alsoSendAway: items that turned up in the run when they shouldn't (at launch, AppKit put them right
+    ///   of the spacer). Once the spacer has pushed them off the screen they are dragged to the far left, so their
+    ///   remembered place is out there too and the next launch doesn't bring them back.
+    func placeRun(_ wanted: [UInt32], alsoSendAway strays: [UInt32] = [], progress: @escaping @MainActor (Int, Int) -> Void = { _, _ in }) async -> Result<Int, ItemMover.Failure> {
         await holdAnchor()
         defer { releaseAnchor() }
         guard let spacer, let spacerID = spacer.currentWindowID() else { return await rebuild(wanted: wanted, progress: progress) }
@@ -192,6 +195,9 @@ final class Arranger {
         if case .failure(let failure) = await pinWindow(spacerID, label: "spacer") { return .failure(failure) }
         spacer.setExpanded(true)
         try? await Task.sleep(for: .milliseconds(500))
+        for stray in strays where !wanted.contains(stray) {
+            if case .failure = await sendAwayWindow(stray, label: "\(stray) (stray)") { Log.write("arrange: couldn't send stray \(stray) away; carrying on") }
+        }
         return await rebuild(wanted: wanted, allowSendAway: false, progress: progress)
     }
 

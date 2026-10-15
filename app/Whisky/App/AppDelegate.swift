@@ -255,6 +255,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             },
             setGlassInNotch: { [weak self] on in self?.glassInNotch = on },
             setAnnouncesChanges: { [weak self] on in self?.watcher.isEnabled = on },
+            setPlacesRunAtLaunch: { [weak self] on in self?.placesRunAtLaunch = on },
             setShowsRealImages: { [weak self] on in
                 self?.model.showsRealImages = on
                 if on, !Permissions.hasScreenRecording { Permissions.requestScreenRecording() }
@@ -283,6 +284,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.opensFromNotch = bar.opensFromNotch
         model.glassInNotch = glassInNotch
         model.announcesChanges = watcher.isEnabled
+        model.placesRunAtLaunch = placesRunAtLaunch
         if !model.spacerBusy { model.spacerOn = spacer.isActive }
         model.watchesLayout = memory.isWatching
         model.savedLayoutCount = memory.saved?.count
@@ -355,12 +357,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if spacer.isActive, !spacer.isExpanded {
             if await memory.runMatchesArrangement() {
                 spacer.setExpanded(true)
+            } else if placesRunAtLaunch {
+                applyGlassPlacement()
+                await placeRunWhenIdle()
             } else {
                 Log.write("spacer: left collapsed until the arrangement is put back")
                 memory.scheduleCheck(after: .seconds(2))
             }
         }
         applyGlassPlacement()
+    }
+
+    private static let placesRunAtLaunchKey = "placesRunAtLaunch"
+
+    /// Put the arrangement back by itself after a relaunch (once the user is idle), rather than only point it out.
+    private var placesRunAtLaunch: Bool {
+        get { UserDefaults.standard.object(forKey: Self.placesRunAtLaunchKey) as? Bool ?? true }
+        set { UserDefaults.standard.set(newValue, forKey: Self.placesRunAtLaunchKey) }
+    }
+
+    /// Waits until the mouse and keyboard have been still for 3 s (moving items takes the pointer over for a few
+    /// seconds) and the menu bar is showing, then puts the arrangement back the reliable way. Gives up after ten
+    /// minutes and leaves the drift notice instead.
+    private func placeRunWhenIdle() async {
+        let anyInput = CGEventType(rawValue: ~0)!
+        let deadline = ContinuousClock.now + .seconds(600)
+        Log.write("spacer: not where the arrangement starts; will put it back once the pointer is still")
+        while ContinuousClock.now < deadline {
+            let idle = CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: anyInput)
+            if idle >= 3, arranger.isMenuBarShown(), !arranger.isBusy, !bar.isOpen {
+                Log.write("spacer: putting the arrangement back (idle \(Int(idle)) s)")
+                let result = await memory.restore()
+                if case .failure(let failure) = result { Log.write("spacer: putting it back failed: \(failure)") }
+                return
+            }
+            try? await Task.sleep(for: .seconds(1))
+        }
+        Log.write("spacer: still not put back after ten minutes; the drift notice offers it")
+        memory.scheduleCheck(after: .zero)
     }
 
     private func applyGlassPlacement() {

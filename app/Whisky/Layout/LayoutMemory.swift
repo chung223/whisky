@@ -65,7 +65,9 @@ final class LayoutMemory {
         }
         let row = arranger.layoutRow()
         let firstDrawn = row.entries.firstIndex(where: \.isDrawn)
-        let run = row.isBounded ? row.entries.map(\.key) : firstDrawn.map { row.entries[$0...].map(\.key) } ?? []
+        let current = row.isBounded ? row.entries.map(\.key) : firstDrawn.map { row.entries[$0...].map(\.key) } ?? []
+        // Arranged items missing from this scan (app not running, or slow to answer) keep their place.
+        let run = LayoutDrift.merge(current: current, previous: saved ?? [], present: Set(model.lastScan.map(\.key)))
         saved = run
         unconfirmed = nil
         model.layoutDrift = nil
@@ -122,6 +124,9 @@ final class LayoutMemory {
 
     /// Whether the run between the spacer and the end of the user's part matches the arrangement (by order, Control
     /// Center's modules aside). Used at launch to decide whether the spacer, put back by AppKit, can be expanded.
+    /// Items that were in the spacer's run at launch but aren't arranged there (`runMatchesArrangement`).
+    private(set) var launchStrays: [String] = []
+
     func runMatchesArrangement() async -> Bool {
         await model.refresh(captureGlyphs: false)
         guard let saved, arranger.isMenuBarShown() else { return false }
@@ -130,6 +135,7 @@ final class LayoutMemory {
         guard row.isBounded else { return false }
         let current = row.entries.filter { !$0.isSystem }.map(\.key)
         let difference = LayoutDrift.compare(saved: saved, current: current, present: present)
+        launchStrays = difference?.extra ?? []
         Log.write("layout: at launch the spacer's run \(difference == nil ? "matches" : "doesn't match") the arrangement\(difference.map { " (missing \($0.missing), extra \($0.extra))" } ?? "")")
         return difference == nil
     }
@@ -138,10 +144,22 @@ final class LayoutMemory {
     /// doesn't fit any more is dropped from it instead of being reported forever).
     func restore() async -> Result<Int, ItemMover.Failure> {
         guard let saved else { return .success(0) }
-        await model.refresh(captureGlyphs: false)
+        // Right after a launch an app can be slow to answer the scan; an arranged item missing from it would be
+        // left out of the run. Look a few more times (a busy app is asked again after three scans).
+        for attempt in 1...5 {
+            await model.refresh(captureGlyphs: false)
+            let missing = saved.filter { model.item(forKey: $0) == nil }
+            if missing.isEmpty || attempt == 5 {
+                if !missing.isEmpty { Log.write("layout: \(missing) not in the menu bar; restoring without them") }
+                break
+            }
+            try? await Task.sleep(for: .milliseconds(500))
+        }
         let items = saved.compactMap { model.item(forKey: $0) }.filter { $0.placement != .off }
         Log.write("layout: restoring \(items.map(\.key))")
-        let result = await arranger.apply(visible: items) { _, _ in }
+        let strays = launchStrays.compactMap { model.item(forKey: $0)?.windowID }
+        launchStrays = []
+        let result = await arranger.apply(visible: items, strays: strays) { _, _ in }
         if case .success = result {
             await remember()
         } else {

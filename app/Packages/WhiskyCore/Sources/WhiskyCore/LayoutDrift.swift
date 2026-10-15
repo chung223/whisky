@@ -34,4 +34,17 @@ public enum LayoutDrift {
         let reordered = missing.isEmpty && extra.isEmpty ? true : kept != expected.filter { currentSet.contains($0) }
         return Difference(missing: missing, extra: extra, reordered: reordered)
     }
+
+    /// The arrangement to remember after the run changed: the run as it is now, plus arranged items that aren't in the
+    /// menu bar at the moment (their app isn't running, or didn't answer yet), each kept right after the item it
+    /// followed before. Forgetting them would drop them from the layout for good.
+    public static func merge(current: [String], previous: [String], present: Set<String>) -> [String] {
+        var merged = current
+        for (index, key) in previous.enumerated() where !merged.contains(key) && !present.contains(key) {
+            let before = previous[..<index].last { merged.contains($0) }
+            let position = before.flatMap { merged.firstIndex(of: $0) }.map { $0 + 1 } ?? 0
+            merged.insert(key, at: position)
+        }
+        return merged
+    }
 }
