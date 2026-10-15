@@ -1,0 +1,12 @@
+# 開源專案的 clone 與 README 快照是第三方著作，只留在本機（清單記在 raw/github/manifest.md）
+raw/github/repos/
+raw/github/readmes/
+# Bartender 逆向產物不推到公開 repo
+raw/bartender/
+.DS_Store
+app/**/xcuserdata/
+app/**/DerivedData/
+app/build/
+app/Whisky.xcodeproj/
+app/Packages/*/.build/
+app/Packages/*/.swiftpm/
