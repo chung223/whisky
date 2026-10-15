@@ -66,6 +66,12 @@ final class WhiskyBarController {
     /// Whether a changed item can be pointed out at the notch now.
     var canAnnounce: Bool { opensFromNotch && NotchPresenter.isAvailable && !isOpen }
 
+    /// A line under the notch while Whisky works on its own (nil to take it away).
+    func showStatus(_ text: String?) {
+        guard opensFromNotch, NotchPresenter.isAvailable else { return }
+        notch.showStatus(text)
+    }
+
     /// A hidden item changed: show it under the notch; a click opens it.
     func announce(_ item: BarItem) {
         guard canAnnounce else { return }

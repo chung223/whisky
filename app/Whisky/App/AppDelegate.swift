@@ -173,9 +173,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func restoreLayout() {
         Task {
-            let result = await memory.restore()
-            applyGlassPlacement()
-            if case .failure(let failure) = result {
+            if case .failure(let failure) = await restoreArrangement(pausingForUser: false) {
                 ArrangeAlert.show(action: "把圖示排回你排好的版面", failure: failure)
             }
         }
@@ -380,21 +378,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// seconds) and the menu bar is showing, then puts the arrangement back the reliable way. Gives up after ten
     /// minutes and leaves the drift notice instead.
     private func placeRunWhenIdle() async {
-        let anyInput = CGEventType(rawValue: ~0)!
-        let deadline = ContinuousClock.now + .seconds(600)
-        Log.write("spacer: not where the arrangement starts; will put it back once the pointer is still")
-        while ContinuousClock.now < deadline {
-            let idle = CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: anyInput)
-            if idle >= 3, arranger.isMenuBarShown(), !arranger.isBusy, !bar.isOpen {
-                Log.write("spacer: putting the arrangement back (idle \(Int(idle)) s)")
-                let result = await memory.restore()
-                if case .failure(let failure) = result { Log.write("spacer: putting it back failed: \(failure)") }
-                return
-            }
-            try? await Task.sleep(for: .seconds(1))
+        Log.write("spacer: not where the arrangement starts; will put it back once the user is idle")
+        guard await Arranger.waitUntilUserIdle(5) else {
+            Log.write("spacer: still not put back after ten minutes; the drift notice offers it")
+            memory.scheduleCheck(after: .zero)
+            return
         }
-        Log.write("spacer: still not put back after ten minutes; the drift notice offers it")
-        memory.scheduleCheck(after: .zero)
+        while !arranger.isMenuBarShown() || arranger.isBusy || bar.isOpen {
+            try? await Task.sleep(for: .seconds(1))
+            _ = await Arranger.waitUntilUserIdle(5)
+        }
+        Log.write("spacer: putting the arrangement back (idle \(Int(Arranger.userIdleSeconds)) s)")
+        await restoreArrangement(pausingForUser: true)
+    }
+
+    /// Puts the remembered arrangement back, showing it at the notch while it happens.
+    @discardableResult
+    private func restoreArrangement(pausingForUser: Bool) async -> Result<Int, ItemMover.Failure> {
+        bar.showStatus("正在排回你的版面，先別動滑鼠")
+        arranger.pausesForUser = pausingForUser
+        let result = await memory.restore()
+        arranger.pausesForUser = false
+        bar.showStatus(nil)
+        applyGlassPlacement()
+        if case .failure(let failure) = result { Log.write("layout: putting it back failed: \(failure)") }
+        return result
     }
 
     private func applyGlassPlacement() {

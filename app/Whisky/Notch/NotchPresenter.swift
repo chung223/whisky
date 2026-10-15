@@ -147,6 +147,20 @@ final class NotchPresenter: BarPresenter {
 
     private var alertAction: (() -> Void)?
 
+    /// A line under the notch that stays until taken away (nil), e.g. while the arrangement is put back.
+    func showStatus(_ text: String?) {
+        guard geometry != nil else { return }
+        if let text {
+            guard state.phase == .closed || state.phase == .alert else { return }
+            hoverTask?.cancel()
+            alertAction = nil
+            state.alert = NotchState.Alert(name: text, glyph: nil, symbol: "arrow.uturn.backward.circle", icon: nil, detail: nil)
+            setPhase(.alert)
+        } else if state.phase == .alert, alertAction == nil {
+            setPhase(.closed)
+        }
+    }
+
     /// Testing: shows the hover state without moving the pointer (`whisky://notch?phase=peek`).
     func showPeekForTesting() {
         state.hiddenCount = model.items.filter { !$0.isOff }.count
@@ -293,6 +307,8 @@ final class NotchState {
         let glyph: Glyph?
         let symbol: String?
         let icon: NSImage?
+        /// The grey word after the name ("有變化"); nil for none.
+        var detail: String? = "有變化"
     }
 
     var phase: Phase = .closed
@@ -369,9 +385,11 @@ struct NotchRootView: View {
                         .font(.system(size: 12, weight: .medium))
                         .lineLimit(1)
                         .truncationMode(.middle)
-                    Text("有變化")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.white.opacity(0.5))
+                    if let detail = alert.detail {
+                        Text(detail)
+                            .font(.system(size: 11))
+                            .foregroundStyle(.white.opacity(0.5))
+                    }
                 }
                 .foregroundStyle(.white)
                 .frame(height: 26)

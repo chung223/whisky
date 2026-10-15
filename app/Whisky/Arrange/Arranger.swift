@@ -30,6 +30,32 @@ final class Arranger {
 
     // MARK: - The glass, on demand
 
+    /// For moves nobody asked for just now (putting the arrangement back after a launch): before each drag, wait until
+    /// the user has left the mouse and keyboard alone for a moment, so a drag never fights their hand.
+    var pausesForUser = false
+
+    /// Seconds since the user last touched the mouse or keyboard. HID events only: Whisky's own synthetic drags
+    /// (posted to the session) don't count.
+    static var userIdleSeconds: Double {
+        CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: CGEventType(rawValue: ~0)!)
+    }
+
+    /// Waits until the user has been idle for `seconds`; false if that didn't happen before `timeout`.
+    static func waitUntilUserIdle(_ seconds: Double, timeout: Duration = .seconds(600)) async -> Bool {
+        let deadline = ContinuousClock.now + timeout
+        while ContinuousClock.now < deadline {
+            if userIdleSeconds >= seconds { return true }
+            try? await Task.sleep(for: .milliseconds(250))
+        }
+        return false
+    }
+
+    private func pauseForUserIfNeeded() async {
+        guard pausesForUser, Self.userIdleSeconds < 1.5 else { return }
+        Log.write("arrange: the user is busy; pausing")
+        _ = await Self.waitUntilUserIdle(1.5)
+    }
+
     /// Whether an operation needs the glass in the menu bar right now (it must not be taken away meanwhile).
     var isHoldingAnchor: Bool { anchorHolds > 0 }
     private var revealing: Task<Void, Never>?
@@ -192,10 +218,12 @@ final class Arranger {
             spacer.setExpanded(false)
             try? await Task.sleep(for: .milliseconds(400))
         }
+        await pauseForUserIfNeeded()
         if case .failure(let failure) = await pinWindow(spacerID, label: "spacer") { return .failure(failure) }
         spacer.setExpanded(true)
         try? await Task.sleep(for: .milliseconds(500))
         for stray in strays where !wanted.contains(stray) {
+            await pauseForUserIfNeeded()
             if case .failure = await sendAwayWindow(stray, label: "\(stray) (stray)") { Log.write("arrange: couldn't send stray \(stray) away; carrying on") }
         }
         return await rebuild(wanted: wanted, allowSendAway: false, progress: progress)
@@ -279,6 +307,7 @@ final class Arranger {
             seen.append(plan)
             let steps: [(id: UInt32, sendsAway: Bool)] = plan.sendAway.first.map { [($0, true)] } ?? plan.pin.map { ($0, false) }
             for step in steps {
+                await pauseForUserIfNeeded()
                 guard done < cap else {
                     Log.write("arrange: rebuild gave up after \(done) moves (too many moves)")
                     return .failure(.didNotMove)
