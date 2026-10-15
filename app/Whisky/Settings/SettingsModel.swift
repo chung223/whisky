@@ -12,6 +12,7 @@ final class SettingsModel {
         /// Recording a shortcut: the current one is released meanwhile, so pressing it records it instead of firing.
         var setRecordingHotKey: (Bool) -> Void = { _ in }
         var setLaunchAtLogin: (Bool) -> Void = { _ in }
+        var setOpensFromNotch: (Bool) -> Void = { _ in }
         var setShowsRealImages: (Bool) -> Void = { _ in }
         /// Returns a problem to show, or nil.
         var setSpacer: (Bool) async -> String? = { _ in nil }
@@ -31,6 +32,8 @@ final class SettingsModel {
     var launchAtLogin = false
     var loginNeedsApproval = false
     var showsRealImages = false
+    var opensFromNotch = true
+    var hasNotch = false
     var spacerOn = false
     var spacerBusy = false
     var spacerProblem: String?

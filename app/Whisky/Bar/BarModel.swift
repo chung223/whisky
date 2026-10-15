@@ -17,10 +17,13 @@ struct BarItem: Identifiable {
             .flatMap { NSImage(systemSymbolName: $0, accessibilityDescription: nil) == nil ? nil : $0 }
     }
 
-    var tooltip: String {
-        let name = scanned.label == scanned.appName ? scanned.appName : "\(scanned.appName)：\(scanned.label)"
-        return isOff ? "\(name)（不在選單列上）" : name
+    /// "iStat Menus · Memory", "Siri", "Surge": the app name, plus the item's own label when it says more.
+    var displayName: String {
+        ItemNaming.displayName(appName: scanned.appName, label: scanned.label,
+                               systemName: SystemItemSymbols.name(key: scanned.key, bundleID: scanned.bundleID))
     }
+
+    var tooltip: String { isOff ? "\(displayName)（不在選單列上）" : displayName }
 }
 
 /// The items macOS didn't draw, refreshed from AX scans.
@@ -39,6 +42,16 @@ final class BarModel {
     /// The highlighted item in `filteredItems` once the keyboard is used.
     var selection = 0
     var isUsingKeyboard = false
+    /// The item under the pointer, named in the panel's footer.
+    var hoveredID: String?
+    /// The shortcut that opens Whisky Bar, shown in its search line (nil: none).
+    var shortcutDisplay: String?
+
+    /// What the footer names: the item under the pointer, else the keyboard's choice.
+    var focusedItem: BarItem? {
+        if let hoveredID, let item = items.first(where: { $0.id == hoveredID }) { return item }
+        return isUsingKeyboard ? selectedItem : nil
+    }
 
     var filteredItems: [BarItem] {
         let needle = query.trimmingCharacters(in: .whitespaces).lowercased()
@@ -64,6 +77,7 @@ final class BarModel {
         query = ""
         selection = 0
         isUsingKeyboard = false
+        hoveredID = nil
     }
     var isAccessibilityTrusted = AXIsProcessTrusted()
     var showsRealImages: Bool {

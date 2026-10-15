@@ -4,8 +4,14 @@ import WhiskyCore
 
 struct Glyph {
     let image: NSImage
-    /// Light glyphs (drawn for a dark menu bar) need a dark chip behind them, and vice versa.
+    /// Drawn for a dark menu bar (light) or a light one (dark).
     let isLight: Bool
+    /// For mask-like glyphs (grey ink on transparency), the glyph redrawn in white and in black, so it can follow the
+    /// panel's colours the way the menu bar draws template images. nil for coloured glyphs, which keep their colours.
+    let white: NSImage?
+    let black: NSImage?
+
+    var isMonochrome: Bool { white != nil }
 }
 
 /// Captures status item images with ScreenCaptureKit. An item macOS didn't draw because of the notch
@@ -54,6 +60,20 @@ enum GlyphCapture {
         guard let cropped = image.cropping(to: padded) else { return nil }
         let size = NSSize(width: CGFloat(cropped.width) / scale, height: CGFloat(cropped.height) / scale)
         let luminance = GlyphAnalysis.meanLuminance(of: cropped) ?? 0
-        return Glyph(image: NSImage(cgImage: cropped, size: size), isLight: luminance > 0.6)
+        let image = NSImage(cgImage: cropped, size: size)
+        // Tinted copies rather than a template image: inside Liquid Glass, template images are drawn with a vibrancy
+        // blend, which this keeps out of the way.
+        let monochrome = GlyphAnalysis.isMonochrome(cropped)
+        return Glyph(image: image, isLight: luminance > 0.6,
+                     white: monochrome ? tinted(image, .white) : nil, black: monochrome ? tinted(image, .black) : nil)
+    }
+
+    private static func tinted(_ image: NSImage, _ colour: NSColor) -> NSImage {
+        NSImage(size: image.size, flipped: false) { rect in
+            image.draw(in: rect)
+            colour.set()
+            rect.fill(using: .sourceAtop)
+            return true
+        }
     }
 }

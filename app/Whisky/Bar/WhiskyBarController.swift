@@ -1,11 +1,9 @@
 import AppKit
 import SwiftUI
 
-private final class BarPanel: NSPanel {
-    override var canBecomeKey: Bool { true }
-}
-
-/// The panel under the menu bar that lists the items macOS didn't draw.
+/// Whisky Bar: lists the items macOS didn't draw. It pours out of the notch on a notched display (unless that is
+/// turned off) and otherwise hangs under Whisky's icon. Either way this controller owns what it does: search,
+/// keyboard, refreshing, dismissal and the item actions.
 @MainActor
 final class WhiskyBarController {
     var onVisibilityChange: ((Bool) -> Void)?
@@ -14,12 +12,20 @@ final class WhiskyBarController {
     var onArranged: (() async -> Void)?
     var onKeepLayout: (() -> Void)?
 
+    private static let notchKey = "opensFromNotch"
+
     private let model: BarModel
     private let permissions: Permissions
     private let anchor: () -> NSRect?
     private let arranger: Arranger
     private lazy var activator = ItemActivator(arranger: arranger)
-    private var panel: BarPanel?
+    private lazy var floating = FloatingBarPresenter(model: model, actions: actions, anchor: anchor)
+    private lazy var notch = NotchPresenter(
+        model: model, actions: actions,
+        isHoverSuppressed: { [weak self] in self?.arranger.isBusy ?? false },
+        onOpenRequest: { [weak self] in self?.open() }
+    )
+    private var presenter: BarPresenter?
     private var monitors: [Any] = []
     private var refreshTimer: Timer?
 
@@ -30,19 +36,35 @@ final class WhiskyBarController {
         self.anchor = anchor
     }
 
-    var isOpen: Bool { panel?.isVisible == true }
+    /// Pour Whisky Bar out of the notch (when there is one). On by default.
+    var opensFromNotch: Bool {
+        get { UserDefaults.standard.object(forKey: Self.notchKey) as? Bool ?? true }
+        set {
+            UserDefaults.standard.set(newValue, forKey: Self.notchKey)
+            close()
+            newValue ? notch.install() : notch.uninstall()
+        }
+    }
+
+    func start() {
+        if opensFromNotch { notch.install() }
+    }
+
+    var isOpen: Bool { presenter?.isOpen == true }
+
+    func showNotchPeekForTesting() { notch.showPeekForTesting() }
 
     func toggle() {
         isOpen ? close() : open()
     }
 
     func open() {
+        guard !isOpen else { return }
         model.resetSearch()
-        let panel = panel ?? makePanel()
-        self.panel = panel
-        place(panel, size: panel.frame.size)
-        panel.orderFrontRegardless()
-        panel.makeKey()
+        let presenter: BarPresenter = opensFromNotch && NotchPresenter.isAvailable ? notch : floating
+        self.presenter = presenter
+        Log.write("bar: open (\(presenter is NotchPresenter ? "notch" : "under the icon"))")
+        presenter.present()
         installMonitors()
         Task { await model.refresh(captureGlyphs: true) }
         refreshTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
@@ -56,21 +78,43 @@ final class WhiskyBarController {
 
     func close() {
         guard isOpen else { return }
-        panel?.orderOut(nil)
+        Log.write("bar: close")
+        presenter?.dismiss()
         removeMonitors()
         refreshTimer?.invalidate()
         refreshTimer = nil
+        model.hoveredID = nil
         onVisibilityChange?(false)
+    }
+
+    private var actions: BarActions {
+        BarActions(
+            open: { [weak self] in self?.open($0) },
+            press: { [weak self] in self?.press($0) },
+            activateApp: { [weak self] in self?.activateApp($0) },
+            pin: { [weak self] in self?.pin($0) },
+            requestAccessibility: { [weak self] in
+                self?.permissions.requestAccessibility()
+                self?.permissions.openAccessibilitySettings()
+            },
+            restoreLayout: { [weak self] in
+                self?.close()
+                self?.onRestoreLayout?()
+            },
+            keepLayout: { [weak self] in self?.onKeepLayout?() }
+        )
     }
 
     // MARK: - Actions
 
     private func open(_ item: BarItem, fromKeyboard: Bool = false) {
-        // Drop the menu just under the panel: lined up with the pointer, or with the panel's left edge when the
-        // keyboard chose the item.
-        let panelFrame = panel?.frame ?? .zero
-        let x = fromKeyboard ? panelFrame.minX + 12 : NSEvent.mouseLocation.x
-        let location = NSPoint(x: x, y: (panel?.frame.minY ?? NSEvent.mouseLocation.y) - 2)
+        // Drop the menu from the menu bar, as the item itself would: under the pointer, or under the panel's left edge
+        // when the keyboard chose the item.
+        let panelFrame = presenter?.window?.frame ?? NSRect(origin: NSEvent.mouseLocation, size: .zero)
+        let screen = NSScreen.screens.first { $0.frame.contains(NSPoint(x: panelFrame.midX, y: panelFrame.maxY - 1)) } ?? NSScreen.main
+        let barHeight = (screen?.safeAreaInsets.top ?? 0) > 0 ? screen?.safeAreaInsets.top ?? 0 : NSStatusBar.system.thickness
+        let x = fromKeyboard ? panelFrame.minX + 16 : NSEvent.mouseLocation.x
+        let location = NSPoint(x: x, y: (screen?.frame.maxY ?? panelFrame.maxY) - barHeight - 2)
         activator.open(item.scanned, at: location) { [weak self] in self?.close() }
     }
 
@@ -124,64 +168,6 @@ final class WhiskyBarController {
             case .failure(let failure): ArrangeAlert.show(action: "把「\(name)」放到選單列上", failure: failure)
             }
         }
-    }
-
-    // MARK: - Panel
-
-    private func makePanel() -> BarPanel {
-        let panel = BarPanel(contentRect: NSRect(x: 0, y: 0, width: 200, height: 40), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
-        panel.isFloatingPanel = true
-        panel.level = .popUpMenu
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
-        panel.hidesOnDeactivate = false
-        panel.isOpaque = false
-        panel.backgroundColor = .clear
-        panel.hasShadow = true
-        panel.isMovable = false
-        panel.animationBehavior = .utilityWindow
-
-        let maxWidth = (screen()?.frame.width ?? 1440) - 32
-        let view = WhiskyBarView(
-            model: model,
-            maxWidth: maxWidth,
-            onOpen: { [weak self] in self?.open($0) },
-            onPress: { [weak self] in self?.press($0) },
-            onActivateApp: { [weak self] in self?.activateApp($0) },
-            onPin: { [weak self] in self?.pin($0) },
-            onRequestAccessibility: { [weak self] in
-                self?.permissions.requestAccessibility()
-                self?.permissions.openAccessibilitySettings()
-            },
-            onRestoreLayout: { [weak self] in
-                self?.close()
-                self?.onRestoreLayout?()
-            },
-            onKeepLayout: { [weak self] in self?.onKeepLayout?() },
-            onSizeChange: { [weak self] size in
-                guard let self, let panel = self.panel else { return }
-                self.place(panel, size: size)
-            }
-        )
-        panel.contentView = NSHostingView(rootView: view)
-        return panel
-    }
-
-    /// Hangs the panel just below the menu bar, right-aligned with the Whisky icon.
-    private func place(_ panel: NSPanel, size: CGSize) {
-        guard size.width > 0, size.height > 0, let screen = screen() else { return }
-        let anchorFrame = anchor() ?? NSRect(x: screen.frame.maxX - 40, y: screen.frame.maxY - 1, width: 1, height: 1)
-        let barHeight = screen.safeAreaInsets.top > 0 ? screen.safeAreaInsets.top : NSStatusBar.system.thickness
-        let top = screen.frame.maxY - barHeight - 6
-        let x = min(max(anchorFrame.maxX - size.width, screen.frame.minX + 8), screen.frame.maxX - size.width - 8)
-        panel.setFrame(NSRect(x: x, y: top - size.height, width: size.width, height: size.height), display: true)
-    }
-
-    private func screen() -> NSScreen? {
-        if let anchorFrame = anchor(),
-           let screen = NSScreen.screens.first(where: { $0.frame.contains(NSPoint(x: anchorFrame.midX, y: anchorFrame.minY)) }) {
-            return screen
-        }
-        return NSScreen.main
     }
 
     // MARK: - Dismissal

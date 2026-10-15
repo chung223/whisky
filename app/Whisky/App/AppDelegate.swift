@@ -69,6 +69,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         registerHotKey()
         wireSettings()
         memory.start()
+        bar.start()
 
         if permissions.isAccessibilityTrusted {
             Task {
@@ -166,9 +167,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hotKey?.unregister()
         hotKey = nil
         hotKeyFailed = false
+        model.shortcutDisplay = nil
         guard let shortcut = HotKeyPreference.shortcut else { return }
         hotKey = GlobalHotKey(shortcut) { [weak self] in self?.bar.toggle() }
         hotKeyFailed = hotKey == nil
+        model.shortcutDisplay = hotKeyFailed ? nil : shortcut.display
     }
 
     // MARK: - Settings
@@ -192,6 +195,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             },
             setLaunchAtLogin: { LoginItem.setEnabled($0) },
+            setOpensFromNotch: { [weak self] on in self?.bar.opensFromNotch = on },
             setShowsRealImages: { [weak self] on in
                 self?.model.showsRealImages = on
                 if on, !Permissions.hasScreenRecording { Permissions.requestScreenRecording() }
@@ -215,6 +219,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.launchAtLogin = LoginItem.isEnabled || LoginItem.needsApproval
         model.loginNeedsApproval = LoginItem.needsApproval
         model.showsRealImages = self.model.showsRealImages
+        model.hasNotch = NotchPresenter.isAvailable
+        model.opensFromNotch = bar.opensFromNotch
         if !model.spacerBusy { model.spacerOn = spacer.isActive }
         model.watchesLayout = memory.isWatching
         model.savedLayoutCount = memory.saved?.count
@@ -261,6 +267,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 if let destination { Task { _ = await arranger.moveRaw(item, to: destination) } }
             case ("arrange", _): editor.show()
             case ("settings", _): settings.show()
+            case ("notch-peek", _): bar.showNotchPeekForTesting()
             case ("snapshot", _):
                 WindowSnapshot.writeVisibleWindows()
                 // whisky://snapshot?close=1 closes the windows afterwards (testing without leaving them open).

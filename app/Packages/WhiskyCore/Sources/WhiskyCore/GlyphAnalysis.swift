@@ -45,6 +45,38 @@ public enum GlyphAnalysis {
         return result
     }
 
+    /// True when the glyph works as a mask: its visible pixels are grey and all about as light as each other (white
+    /// or black ink on transparency), so it can be redrawn in any colour the way the menu bar draws template images.
+    /// Coloured glyphs, and logos with dark detail on a light badge (which a mask would flatten into a blob), keep
+    /// their own colours.
+    public static func isMonochrome(_ image: CGImage, saturationThreshold: Double = 0.25, outlierShare: Double = 0.06) -> Bool {
+        let size = 32
+        var monochrome = true
+        withRGBA(image, width: size, height: size) { pixels in
+            var samples: [(luminance: Double, alpha: Double)] = []
+            var visible = 0.0, coloured = 0.0, luminanceSum = 0.0
+            for i in stride(from: 0, to: size * size * 4, by: 4) {
+                let alpha = Double(pixels[i + 3]) / 255
+                guard alpha > 0.3 else { continue }
+                let r = Double(pixels[i]) / 255 / alpha
+                let g = Double(pixels[i + 1]) / 255 / alpha
+                let b = Double(pixels[i + 2]) / 255 / alpha
+                let high = max(r, g, b), low = min(r, g, b)
+                let saturation = high > 0 ? (high - low) / high : 0
+                let luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b
+                visible += alpha
+                luminanceSum += luminance * alpha
+                samples.append((luminance, alpha))
+                if saturation > saturationThreshold, high > 0.15 { coloured += alpha }
+            }
+            guard visible > 0 else { return }
+            let mean = luminanceSum / visible
+            let offTone = samples.filter { abs($0.luminance - mean) > 0.2 }.reduce(0) { $0 + $1.alpha }
+            monochrome = coloured / visible < outlierShare && offTone / visible < outlierShare
+        }
+        return monochrome
+    }
+
     /// Draws `image` into an RGBA buffer of the given size; row 0 of the buffer is the image's top row.
     private static func withRGBA(_ image: CGImage, width: Int, height: Int, _ body: (UnsafeBufferPointer<UInt8>) -> Void) {
         var buffer = [UInt8](repeating: 0, count: width * height * 4)

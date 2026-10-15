@@ -17,6 +17,13 @@ struct SettingsView: View {
                 if let problem = model.hotKeyProblem {
                     note(problem, warning: true)
                 }
+                Toggle(isOn: binding(\.opensFromNotch, model.actions.setOpensFromNotch)) {
+                    Text("從瀏海打開")
+                    Text(model.hasNotch
+                         ? "游標移到瀏海會長出一點、顯示藏了幾個圖示，點一下就從瀏海展開。關掉的話從選單列的酒杯下方打開。"
+                         : "這個螢幕沒有瀏海，Whisky Bar 從選單列的酒杯下方打開。")
+                }
+                .disabled(!model.hasNotch)
                 Toggle(isOn: binding(\.showsRealImages, model.actions.setShowsRealImages)) {
                     Text("顯示圖示的真實圖案")
                     Text(model.hasScreenRecording
