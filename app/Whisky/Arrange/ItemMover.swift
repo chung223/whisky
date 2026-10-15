@@ -61,6 +61,7 @@ final class ItemMover {
                 DragPoster.post(itemID: itemID, destination: destination, mouseDown: mouseDown,
                                 originalFrame: item, plannedTargetFrame: target, waitsForStillness: slides)
             }.value
+            Arranger.ownInputEnded = ContinuousClock.now
             let placed = await settle(itemID, destination)
             Log.write("move \(itemID) \(destination) attempt \(attempt): \(report); \(placed ? "verified" : "not in place")")
             if placed { return }

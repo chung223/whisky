@@ -29,9 +29,10 @@ final class SpacerController: NSObject {
 
     var isActive: Bool { statusItem != nil && windowID != nil }
 
-    /// Experiment (2026-10-16): at launch, create the spacer already expanded. Created 1 pt wide it lands at the notch
-    /// boundary and macOS swaps it with its left neighbour, so every launch needs the run put back.
-    static var createsExpandedAtLaunch: Bool { UserDefaults.standard.bool(forKey: "spacerCreatedExpanded") }
+    /// At launch the spacer is created already expanded. Created 1 pt wide it landed at the notch boundary and macOS
+    /// swapped it with its left neighbour, so every launch needed the run put back; created expanded it came back in
+    /// place (measured 2026-10-16, two relaunches in a row, no moves). `spacerCreatedExpanded = false` restores the old way.
+    static var createsExpandedAtLaunch: Bool { UserDefaults.standard.object(forKey: "spacerCreatedExpanded") as? Bool ?? true }
 
     /// Creates the spacer if it is enabled (its autosave position puts it back where it was).
     func start() async {

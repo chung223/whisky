@@ -380,7 +380,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func startSpacer() async {
         await spacer.start()
         if spacer.isActive {
-            if await memory.runMatchesArrangement() {
+            // Let the menu bar finish laying out the new spacer before judging (measured: a second after creation
+            // a neighbour was still on the wrong side; two seconds later it was right), and look twice.
+            try? await Task.sleep(for: .milliseconds(1500))
+            var matches = await memory.runMatchesArrangement()
+            if !matches {
+                try? await Task.sleep(for: .milliseconds(1500))
+                matches = await memory.runMatchesArrangement()
+            }
+            if matches {
                 if !spacer.isExpanded { spacer.setExpanded(true) }
             } else if placesRunAtLaunch {
                 applyGlassPlacement()
@@ -478,7 +486,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         arranger.concealAnchor = { [weak self] in self?.statusItem.setShown(false) }
                         statusItem.setShown(false)
                     }
-                    await spike?.run(isGlassShown: { [weak self] in self?.statusItem.isShown ?? true })
+                    await spike?.run(isGlassShown: { [weak self] in self?.statusItem.isShown ?? true },
+                                     includesWideRun: url.query()?.contains("wide=1") == true)
                     applyGlassPlacement()
                 }
             // The same as the switches in Settings (the layout is remembered, the glass follows).

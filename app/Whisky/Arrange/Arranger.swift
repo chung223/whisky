@@ -50,8 +50,14 @@ final class Arranger {
         return false
     }
 
+    /// When Whisky's own last drag ended: putting the pointer back after it counts as HID input too.
+    static var ownInputEnded = ContinuousClock.now - .seconds(60)
+
     private func pauseForUserIfNeeded() async {
         guard pausesForUser, Self.userIdleSeconds < 1.5 else { return }
+        // The last input was Whisky's own (the pointer put back after a drag), not the user's.
+        let lastInput = ContinuousClock.now - .milliseconds(Int(Self.userIdleSeconds * 1000))
+        if lastInput <= Self.ownInputEnded + .milliseconds(500) { return }
         Log.write("arrange: the user is busy; pausing")
         _ = await Self.waitUntilUserIdle(1.5)
     }
