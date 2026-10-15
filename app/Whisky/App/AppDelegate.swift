@@ -313,7 +313,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             await memory.remember()
             return nil
         }
-        if case .failure(let failure) = await arranger.enableSpacer() {
+        // Keep the remembered arrangement visible (what is drawn right now may already be off, near the notch).
+        await model.refresh(captureGlyphs: false)
+        let remembered = memory.saved?.compactMap { model.item(forKey: $0) }.filter { $0.placement != .off }.compactMap(\.windowID)
+        if case .failure(let failure) = await arranger.enableSpacer(keeping: remembered?.isEmpty == false ? remembered : nil) {
             arranger.disableSpacer()
             return "沒辦法打開分隔項目：\(failure)。選單列已經還原。"
         }
@@ -382,8 +385,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     await spike?.run(isGlassShown: { [weak self] in self?.statusItem.isShown ?? true })
                     applyGlassPlacement()
                 }
-            case ("spacer-on", _): Task { _ = await arranger.enableSpacer() }
-            case ("spacer-off", _): arranger.disableSpacer()
+            // The same as the switches in Settings (the layout is remembered, the glass follows).
+            case ("spacer-on", _): Task { Log.write("url spacer-on: \(await setSpacer(true) ?? "done")") }
+            case ("spacer-off", _): Task { _ = await setSpacer(false) }
+            case ("glass-in-notch", _): glassInNotch = url.query()?.contains("on=1") == true
             case ("move", _):
                 // Debugging: whisky://move?item=<window ID>&leftOf=<window ID> (or rightOf=).
                 let query = Dictionary((URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []).map { ($0.name, $0.value ?? "") }, uniquingKeysWith: { a, _ in a })

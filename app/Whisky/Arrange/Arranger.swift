@@ -154,19 +154,27 @@ final class Arranger {
 
     /// Turns the spacer on without changing what is visible: it goes first, then the items drawn now are put back
     /// after it in the same order.
-    func enableSpacer(progress: @escaping @MainActor (Int, Int) -> Void = { _, _ in }) async -> Result<Int, ItemMover.Failure> {
+    /// - Parameter keeping: the run to keep visible, left to right (the remembered arrangement); nil keeps what is
+    ///   drawn now.
+    func enableSpacer(keeping wantedRun: [UInt32]? = nil, progress: @escaping @MainActor (Int, Int) -> Void = { _, _ in }) async -> Result<Int, ItemMover.Failure> {
         await holdAnchor()
         defer { releaseAnchor() }
         guard let spacer else { return failed("enable spacer", .itemNotFound).map { 0 } }
-        let shown = drawnRun()
+        let shown = wantedRun ?? drawnRun()
         if !spacer.isActive { await spacer.create() }
         guard spacer.isActive else { return failed("enable spacer", .itemNotFound).map { 0 } }
         spacer.isEnabled = true
         Log.write("arrange: enable spacer, keeping \(shown.count) items visible")
-        let result = await rebuild(wanted: shown, progress: progress)
-        // Only once the run is in place does the spacer push everything else away.
-        if case .success = result { spacer.setExpanded(true) }
-        return result
+        // 1. The spacer goes next to the glass while it is 1 pt wide, in the open part of the menu bar.
+        // 2. Expanded right away, it pushes everything else off the screen. (Pinning the run first left the 1 pt
+        //    spacer at the notch boundary, where macOS reshuffles items, and it ended up far left with dozens of
+        //    hidden items between it and the glass; measured 2026-10-16.)
+        // 3. The run is brought back from off the screen in order: re-pins only, nothing else is moved.
+        guard let spacerID = spacer.currentWindowID() else { return failed("enable spacer", .itemNotFound).map { 0 } }
+        if case .failure(let failure) = await pinWindow(spacerID, label: "spacer") { return .failure(failure) }
+        spacer.setExpanded(true)
+        try? await Task.sleep(for: .milliseconds(500))
+        return await rebuild(wanted: shown, allowSendAway: false, progress: progress)
     }
 
     func disableSpacer() {
@@ -204,13 +212,17 @@ final class Arranger {
         // sequence (each appends an item at the right end; pinning one already there is a no-op that still counts),
         // so they are carried out as planned, then the result is checked once more.
         var done = 0
-        let limit = first.count + 3
+        // Carry on while each round makes progress (the menu bar near the notch can reshuffle and add work); stop when
+        // a round leaves the plan as it was, or at a generous cap.
+        let cap = first.count * 2 + 20
         var plan = first
+        var previous: RebuildPlanner.Plan?
         while !plan.isEmpty {
-            guard done < limit else {
-                Log.write("arrange: rebuild gave up after \(done) moves; still to do: send away \(plan.sendAway), pin \(plan.pin)")
+            guard plan != previous, done < cap else {
+                Log.write("arrange: rebuild gave up after \(done) moves (\(plan == previous ? "no progress" : "too many moves")); still to do: send away \(plan.sendAway), pin \(plan.pin)")
                 return .failure(.didNotMove)
             }
+            previous = plan
             let steps: [(id: UInt32, sendsAway: Bool)] = plan.sendAway.first.map { [($0, true)] } ?? plan.pin.map { ($0, false) }
             for step in steps {
                 progress(done, done + plan.count)

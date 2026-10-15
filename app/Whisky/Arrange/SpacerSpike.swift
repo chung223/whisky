@@ -49,9 +49,12 @@ final class SpacerSpike {
         guard failures == 0, let spacerID = spacer.windowID else { await tearDown(hadSpacer: hadSpacer, before: before); return }
         let ids = testItems.compactMap(\.windowID)
 
-        // 2. Build the run [spacer, T1, T2] by pinning only Whisky's own items, then expand the spacer.
-        _ = await strictRebuild([ids[0], ids[1]])
-        spacer.setExpanded(true)
+        // 2. Turn the spacer on the way Settings does, keeping [T1, T2]: spacer next to the glass, expanded, then the
+        //    run brought back from off the screen (re-pins of Whisky's own items only).
+        let wasEnabled = spacer.isEnabled
+        let enabled = await arranger.enableSpacer(keeping: [ids[0], ids[1]])
+        spacer.isEnabled = wasEnabled
+        if case .failure = enabled { check("enable the spacer keeping T1, T2", false, detail: "failed") }
         await settle()
         checkRun(expect: [spacerID, ids[0], ids[1]], label: "run is spacer, T1, T2")
         checkOnlyDrawn([ids[0], ids[1]], label: "with the spacer expanded")
