@@ -48,8 +48,15 @@ final class Arranger {
 
     func pinWindow(_ itemID: UInt32, label: String) async -> Result<Void, ItemMover.Failure> {
         guard let anchor = anchorWindowID() else { return failed("pin \(label)", .anchorUnavailable) }
-        let result = await run("pin \(label)") { () async throws(ItemMover.Failure) in try await self.mover.move(itemID, to: .leftOf(anchor)) }
-        return result
+        // With nothing between an expanded spacer and Whisky's icon, a drop next to the icon doesn't land (measured:
+        // three misses in a row). Collapse the spacer for that one move.
+        let collapse = spacer?.isExpanded == true && spacerID.map { currentRun(spacerID: $0) == [$0] } == true
+        if collapse {
+            spacer?.setExpanded(false)
+            try? await Task.sleep(for: .milliseconds(400))
+        }
+        defer { if collapse { spacer?.setExpanded(true) } }
+        return await run("pin \(label)") { () async throws(ItemMover.Failure) in try await self.mover.move(itemID, to: .leftOf(anchor)) }
     }
 
     func sendAwayWindow(_ itemID: UInt32, label: String) async -> Result<Void, ItemMover.Failure> {

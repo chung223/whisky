@@ -27,6 +27,13 @@ final class SpacerSpike {
         for (index, width) in [30, 44, 60, 84].enumerated() {
             let result = await OwnItems.create(length: CGFloat(width), autosaveName: "WhiskyTest\(index + 1)") { item in
                 item.button?.title = "T\(index + 1)"
+                if index == 2 {
+                    // T3 has an ordinary menu, for menu mirroring.
+                    let menu = NSMenu()
+                    menu.addItem(NSMenuItem(title: "Alpha", action: nil, keyEquivalent: ""))
+                    menu.addItem(NSMenuItem(title: "Beta", action: nil, keyEquivalent: ""))
+                    item.menu = menu
+                }
             }
             testItems.append(result)
         }
@@ -65,7 +72,42 @@ final class SpacerSpike {
         checkRun(expect: [spacerID, ids[0], ids[3]], label: "run is spacer, T1, T4")
         checkOnlyDrawn([ids[0], ids[3]], label: "after showing T4")
 
+        // 7. Send T4 away (the usual, non-strict plan picks "send away" here), with the spacer expanded.
+        var own = Set(ids)
+        own.insert(spacerID)
+        _ = await arranger.rebuild(wanted: [ids[0]], allowSendAway: true, onlyIDs: own) { _, _ in }
+        await settle()
+        checkRun(expect: [spacerID, ids[0]], label: "after sending T4 away")
+        checkOnlyDrawn([ids[0]], label: "after sending T4 away")
+
+        // 8. Menu mirroring reads T3's menu while T3 is off the screen.
+        let pid = ProcessInfo.processInfo.processIdentifier
+        if let frame = WindowList.statusFrames()[ids[2]] {
+            let titles = await Task.detached { () -> [String]? in
+                guard let element = Self.ownElement(near: frame, pid: pid) else { return nil }
+                return MenuMirror.read(element)?.map(\.title)
+            }.value
+            check("menu mirroring reads an off-screen item's menu", titles == ["Alpha", "Beta"], detail: "\(titles ?? [])")
+        } else {
+            check("menu mirroring reads an off-screen item's menu", false, detail: "T3 window missing")
+        }
+
+        // Opening a hidden item that shows a popover ("show it for a moment") isn't covered here: a test popover
+        // anchored to one of Whisky's own items stayed on screen after close() and orderOut (2026-10-15), so the
+        // step could never see it closed. It is checked by hand with a real app instead.
+
         await tearDown(hadSpacer: hadSpacer, before: before)
+    }
+
+    /// One of Whisky's own status items through Accessibility (call off the main thread: the main thread answers it).
+    nonisolated static func ownElement(near frame: CGRect, pid: pid_t) -> AXElement? {
+        let app = AXElement.application(pid)
+        app.setTimeout(1)
+        guard let bar = app.element("AXExtrasMenuBar") else { return nil }
+        return bar.children.first { child in
+            child.setTimeout(1)
+            return child.frame.map { abs($0.midX - frame.midX) < 6 } ?? false
+        }
     }
 
     /// Rebuilds moving nothing but Whisky's own items; refuses outright otherwise.
@@ -96,7 +138,8 @@ final class SpacerSpike {
             check("only the run is drawn \(label)", false, detail: "Whisky's icon not found")
             return
         }
-        let drawn = Set(windows.filter { $0.isOnscreen && $0.frame.maxX <= anchorFrame.minX + 1 && $0.id != spacer.windowID }.map(\.id))
+        // A popover hangs below the bar at the same level; only items in the bar row count.
+        let drawn = Set(windows.filter { $0.isOnscreen && $0.frame.maxX <= anchorFrame.minX + 1 && $0.id != spacer.windowID && $0.frame.minY < 10 }.map(\.id))
         check("only the run is drawn \(label)", drawn == expected,
               detail: "drawn \(drawn.sorted()), expected \(expected.sorted()); \(spacer.summary)")
     }

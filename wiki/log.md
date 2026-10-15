@@ -101,3 +101,7 @@
 - raw/github/readmes/（58 份第三方 README 的完整複本）改為只留本機，不進版控；manifest 註明重抓方式。
 - 實測紀錄中的銀行憑證元件名稱改為泛稱。raw/articles 為自寫摘要加短引文，保留。
 - wiki/bartender 依本檔 schema（只描述行為、不含偽代碼）保留；raw/bartender、clone、使用者設定備份不進版控。
+
+## [2026-10-15] re | 自我測試擴充：送走、menu mirroring、暫時放回再點
+- 第 7、8 步通過；第 9 步發現兩個問題並修正：自己的 status item 要在主執行緒 AXPress（AppKit 在呼叫端執行動作，曾因此當機一次）、空的選單列上放回圖示前要先收起分隔項目。
+- 測試用 popover 關不掉（推測是排版中被孤立），第 9 步移出自我測試；正式功能放回後多等 600 ms。更新 concepts/platform-verification.md。

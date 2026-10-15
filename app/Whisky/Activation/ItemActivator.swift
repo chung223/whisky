@@ -75,7 +75,9 @@ final class ItemActivator {
             await pressInPlace(item)
             return
         }
-        try? await Task.sleep(for: .milliseconds(150))
+        // Let the menu bar finish relaying out (the spacer may have been collapsed and expanded around the move):
+        // a popover opened while the item's window is still being replaced is left orphaned on screen.
+        try? await Task.sleep(for: .milliseconds(600))
 
         let before = WindowList.onscreenWindowIDs(ownedBy: item.pid)
         var opened: Set<UInt32> = []
@@ -109,6 +111,13 @@ final class ItemActivator {
 
     private func axPress(_ item: ScannedItem) async -> Int32 {
         let element = item.element
+        // Pressing one of Whisky's own items runs its action right here, on the calling thread (AppKit handles
+        // in-process AX calls directly), so it must be the main thread. Other apps answer on their own main thread,
+        // so their calls go to the background to keep Whisky responsive.
+        if item.pid == ProcessInfo.processInfo.processIdentifier {
+            element.setTimeout(1)
+            return element.perform("AXPress").rawValue
+        }
         return await Task.detached(priority: .userInitiated) { () -> Int32 in
             element.setTimeout(1)
             return element.perform("AXPress").rawValue
