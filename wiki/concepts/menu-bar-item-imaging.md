@@ -16,7 +16,7 @@ sources:
   - raw/github/repos/dwarvesf__hidden
   - raw/articles/2026-10-12-apple-developer-docs-menu-bar-apis.md
   - raw/github/repos/fif7y__pelmet
-updated: 2026-10-14
+updated: 2026-10-16
 ---
 
 # 擷取選單列項目的圖像
@@ -80,6 +80,8 @@ updated: 2026-10-14
 
 - **沒畫出來的 item 仍有活的 backing store**：26 上被瀏海擠掉、`onscreen = false` 的 item，`SCScreenshotManager.captureImage` 搭配 `SCContentFilter(desktopIndependentWindow:)` 仍擷取得到（`NOTES.md:56-59`）。
   注意這是「座標在螢幕內但沒被合成」的情況；被分隔線推到螢幕外的 item 仍會回 `-3811`（本頁「難點」）。
+- 【矛盾】【觀察】Whisky 在 26.7 實測（2026-10-16）：分隔項目展開（10000 pt）時，被推到螢幕外的 24 個項目用 `SCContentFilter(desktopIndependentWindow:)` 擷取，23 個成功，只有 1 個一直回「音訊/影片擷取失敗」。
+  一輪 0.31–0.35 秒（[實測](platform-verification.md)）。和 MenubarHide、Frost 說的 `-3811` 不同，可能跟 OS 版本或擷取設定有關，未查明。
 - **AX 不提供任何圖像**：status item 有 43 個屬性，沒有一個和圖片有關（`NOTES.md:53-54`）。
 - **App 內附圖檔的限制**：Docker 有 13 張狀態圖、選哪張要看不到的內部狀態；Bitwarden 的圖在 `app.asar`；「鯨魚加更新徽章」是繪製時才合成的（`NOTES.md:61-65`）。
   所以 MBAR 式的靜態抽取只能當「沒有 Screen Recording 時比 App icon 好一點」的退路。

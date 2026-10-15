@@ -140,3 +140,8 @@
 - 新功能：ChangeWatcher 每 30 秒比對藏著的項目，安靜過後有變化就在瀏海顯示 5 秒，點了直接打開。一輪約 0.3 秒。
 - 排列視窗：酒杯住在瀏海裡時畫在預覽的瀏海裡；版面跑掉時，滑過瀏海會顯示橘點。
 - 更正 README 的限制：分隔項目打開時大多仍截得到真實圖案。更新 concepts/platform-verification.md。
+
+## [2026-10-16] lint | 第一次健康檢查
+- 索引完整，沒有孤兒頁。
+- 過時：overview.md 還停在研究階段，補上「Whisky 做到哪裡、實測學到什麼」，並更新「還不知道的」。
+- 矛盾：concepts/menu-bar-item-imaging.md 說螢幕外擷取回 -3811，和 26.7 實測不同，已標【矛盾】。concepts/menu-bar-item-activation.md 的「待實測」補上 26.7 的答案（menu mirroring、iStat 要一般點擊）。

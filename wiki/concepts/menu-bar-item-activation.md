@@ -14,7 +14,7 @@ sources:
   - raw/github/repos/sane-apps__SaneBar
   - raw/github/repos/dwarvesf__hidden
   - raw/github/repos/fif7y__pelmet
-updated: 2026-10-14
+updated: 2026-10-16
 ---
 
 # 從獨立 bar 點開隱藏的項目（點擊轉送）
@@ -90,6 +90,15 @@ updated: 2026-10-14
 **27 時鐘轉送的兩種做法**（【矛盾】）：Pelmet、MenuBarHider 在同一個程序裡短暫 invalidate assertion 再 AXPress 時鐘；
 MenuTidy 說同一個程序 invalidate 後通知中心仍打不開，所以 assertion 放在子程序，轉送時殺掉子程序、AXPress、再啟動新的（見 [allow-list](menubar-agent-allow-list.md) 第 21 點）。
 Chest 不用 assertion，時鐘本來就能打開通知中心。
+
+### Whisky 在 26.7 的實測（2026-10-15～16）
+
+- 【觀察】menu mirroring 對瀏海後與被分隔項目推到螢幕外的項目都有效：Keysmith、DigUp、Presence 以及測試項目 T3（[實測](platform-verification.md)）。
+- 【觀察】iStat Menus（Setapp 版）的項目沒有 `AXMenu`。對項目 `AXPress` 回 `-25200`（kAXErrorFailure），帶 `0x33` 的點擊沒反應，**真的移動游標的一般點擊**才打開下拉面板。
+  Whisky 會記住「這個 App 要一般點擊」，下次直接用（`plainClickApps`）。
+- 【觀察】判斷有沒有打開不能只看項目自己的程序：改成認「選單列附近新出現、夠大的視窗」，不限程序。
+- 【觀察】對 Whisky 自己的項目 AXPress，AppKit 會在呼叫的執行緒上直接執行動作，所以要在主執行緒呼叫。
+- 【未知】測試用 popover 在 `close()` 之後仍留在畫面上的原因（推測和選單列重新排版有關）。
 
 ### 待實測（26.7 與 27）
 
