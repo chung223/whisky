@@ -89,26 +89,32 @@ final class ItemActivator {
         let before = Set(WindowList.onscreenWindows().map(\.id))
         let itemMidX = WindowList.statusFrames(inMenuBarRowOnly: true)[windowID]?.midX ?? 0
         var opened: Set<UInt32> = []
-        // Three ways to click it, gentlest first; the log says which one worked, to learn each app's habits.
-        let pressResult = await axPress(item)
-        if pressResult == AXError.success.rawValue {
-            opened = await waitForPopup(near: itemMidX, of: item, besides: before, timeout: .milliseconds(1000))
+        // Some apps only open for an ordinary click with the pointer really on the item (iStat Menus); once that is
+        // what worked for an app, it goes first next time instead of after two misses.
+        let prefersPlainClick = item.bundleID.map { Self.plainClickApps.contains($0) } ?? false
+        if prefersPlainClick {
+            opened = await plainClick(item, windowID: windowID, itemMidX: itemMidX, besides: before)
         }
-        Log.write("open \(item.id): AXPress \(pressResult == AXError.success.rawValue ? "ok" : "failed (\(pressResult))"), \(opened.isEmpty ? "nothing opened" : "opened")")
+        // Three ways to click it, gentlest first; the log says which one worked, to learn each app's habits.
+        if opened.isEmpty {
+            let pressResult = await axPress(item)
+            if pressResult == AXError.success.rawValue {
+                opened = await waitForPopup(near: itemMidX, of: item, besides: before, timeout: .milliseconds(1000))
+            }
+            Log.write("open \(item.id): AXPress \(pressResult == AXError.success.rawValue ? "ok" : "failed (\(pressResult))"), \(opened.isEmpty ? "nothing opened" : "opened")")
+        }
         if opened.isEmpty, let frame = WindowList.statusFrames(inMenuBarRowOnly: true)[windowID] {
             // A click routed to the item's window, the pointer hidden and put back.
             await Task.detached(priority: .userInitiated) { Self.click(windowID: windowID, at: CGPoint(x: frame.midX, y: frame.midY)) }.value
             opened = await waitForPopup(near: itemMidX, of: item, besides: before, timeout: .milliseconds(1200))
             Log.write("open \(item.id): routed click \(opened.isEmpty ? "nothing opened" : "opened")")
         }
-        if opened.isEmpty, let frame = WindowList.statusFrames(inMenuBarRowOnly: true)[windowID] {
-            // Some apps (iStat Menus) ignored both: a plain click, the pointer really moved onto the item and left
-            // there until the dropdown is up, then put back.
-            let saved = CGEvent(source: nil)?.location
-            await Task.detached(priority: .userInitiated) { Self.plainClick(at: CGPoint(x: frame.midX, y: frame.midY)) }.value
-            opened = await waitForPopup(near: itemMidX, of: item, besides: before, timeout: .milliseconds(1500))
-            if let saved { CGWarpMouseCursorPosition(saved) }
-            Log.write("open \(item.id): plain click \(opened.isEmpty ? "nothing opened" : "opened")")
+        if opened.isEmpty, !prefersPlainClick {
+            opened = await plainClick(item, windowID: windowID, itemMidX: itemMidX, besides: before)
+            if !opened.isEmpty, let bundleID = item.bundleID { Self.plainClickApps.insert(bundleID) }
+        } else if opened.isEmpty, prefersPlainClick, let bundleID = item.bundleID {
+            // It stopped working that way; start from the gentlest again next time.
+            Self.plainClickApps.remove(bundleID)
         }
         Log.write("open \(item.id): shown for a moment, opened \(opened.count) window(s)")
         if opened.isEmpty {
@@ -145,6 +151,23 @@ final class ItemActivator {
         let new = WindowList.onscreenWindows().filter { !before.contains($0.id) }.prefix(6)
         let described = new.map { "\($0.id) pid \($0.pid)\($0.pid == item.pid ? " (item's app)" : "") layer \($0.layer) at \(Int($0.frame.minX)),\(Int($0.frame.minY)) \(Int($0.frame.width))×\(Int($0.frame.height))" }
         Log.write("open \(item.id): nothing recognised as opened; new windows: \(described.isEmpty ? "none" : described.joined(separator: "; "))")
+    }
+
+    /// Apps whose items open only for an ordinary click (learned, remembered across launches).
+    private static var plainClickApps: Set<String> {
+        get { Set(UserDefaults.standard.stringArray(forKey: "plainClickApps") ?? []) }
+        set { UserDefaults.standard.set(Array(newValue).sorted(), forKey: "plainClickApps") }
+    }
+
+    /// An ordinary click with the pointer moved onto the item, left there until the dropdown is up, then put back.
+    private func plainClick(_ item: ScannedItem, windowID: UInt32, itemMidX: CGFloat, besides before: Set<UInt32>) async -> Set<UInt32> {
+        guard let frame = WindowList.statusFrames(inMenuBarRowOnly: true)[windowID] else { return [] }
+        let saved = CGEvent(source: nil)?.location
+        await Task.detached(priority: .userInitiated) { Self.plainClick(at: CGPoint(x: frame.midX, y: frame.midY)) }.value
+        let opened = await waitForPopup(near: itemMidX, of: item, besides: before, timeout: .milliseconds(1500))
+        if let saved { CGWarpMouseCursorPosition(saved) }
+        Log.write("open \(item.id): plain click \(opened.isEmpty ? "nothing opened" : "opened")")
+        return opened
     }
 
     /// Waits until none of `windows` is on screen any more (the user closed the popover or menu), for at most 15 minutes.
