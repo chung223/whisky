@@ -238,6 +238,7 @@ struct LayoutEditorView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+                Button("打開「系統設定 › 選單列」…") { Permissions.openMenuBarSettings() }
                 FlowLayout(spacing: 6, lineSpacing: 6) {
                     ForEach(draft.off) { entry in
                         tile(entry).opacity(0.6)

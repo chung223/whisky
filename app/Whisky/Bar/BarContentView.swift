@@ -275,7 +275,7 @@ private struct BarCell: View {
             Button("指定快捷鍵…") { actions.assignShortcut(item) }
             if item.isOff {
                 Divider()
-                Text("這個圖示不在選單列上，要先到「系統設定 › 選單列」打開它")
+                Button("在「系統設定 › 選單列」打開它…") { Permissions.openMenuBarSettings() }
             }
         }
     }

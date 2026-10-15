@@ -35,6 +35,12 @@ final class Permissions: NSObject {
 
     static var hasScreenRecording: Bool { CGPreflightScreenCaptureAccess() }
 
+    /// System Settings › Menu Bar, where an app's item is allowed in the menu bar again. On macOS 26 the pane lives in
+    /// the Control Center settings extension (it holds `MenuBarOptionsView`).
+    static func openMenuBarSettings() {
+        openURL("x-apple.systempreferences:com.apple.ControlCenter-Settings.extension")
+    }
+
     static func requestScreenRecording() {
         if !CGRequestScreenCaptureAccess() {
             Permissions.openURL("x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")

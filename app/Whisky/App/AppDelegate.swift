@@ -346,7 +346,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if !on {
             arranger.disableSpacer()
             applyGlassPlacement()
-            await memory.remember()
+            // The arrangement stays what it was: without the spacer only what is drawn changes, and the notch
+            // boundary may pick other items right away, which isn't the user's arrangement (measured 2026-10-16).
+            memory.scheduleCheck(after: .seconds(3))
             return nil
         }
         // Keep the remembered arrangement visible (what is drawn right now may already be off, near the notch).
