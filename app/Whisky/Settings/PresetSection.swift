@@ -19,9 +19,10 @@ struct PresetSection: View {
                 row(preset)
             }
             HStack(spacing: 8) {
-                TextField("新情境的名稱", text: $newName)
+                TextField("新情境的名稱", text: $newName, prompt: Text("新情境的名稱"))
+                    .labelsHidden()
                     .textFieldStyle(.roundedBorder)
-                    .frame(maxWidth: 140)
+                    .frame(width: 150)
                 Picker("", selection: $newTrigger) {
                     ForEach(LayoutPreset.Trigger.allCases, id: \.self) { Text($0.title).tag($0) }
                 }

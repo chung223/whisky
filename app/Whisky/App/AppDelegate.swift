@@ -583,7 +583,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // Testing: whisky://glass?shown=0 or 1 hides or shows the glass in the menu bar.
                 statusItem.setShown(url.query()?.contains("shown=1") == true)
             case ("snapshot", _):
-                WindowSnapshot.writeVisibleWindows()
+                WindowSnapshot.writeVisibleWindows(scrolledToBottom: url.query()?.contains("scroll=bottom") == true)
                 // whisky://snapshot?close=1 closes the windows afterwards (testing without leaving them open).
                 if url.query()?.contains("close=1") == true {
                     bar.close()
