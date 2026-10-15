@@ -11,6 +11,8 @@ final class LayoutMemory {
 
     private let model: BarModel
     private let arranger: Arranger
+    /// The arrangement was taken anew (the active layout preset follows it).
+    var onRemember: (([String]) -> Void)?
     private var pendingCheck: Task<Void, Never>?
     /// A difference seen once; it is shown only if the next check, 20 s later, still sees it (apps starting up and
     /// the menu bar relaying out pass through states that sort themselves out).
@@ -72,6 +74,7 @@ final class LayoutMemory {
         unconfirmed = nil
         model.layoutDrift = nil
         Log.write("layout: remembered \(run)")
+        onRemember?(run)
     }
 
     func scheduleCheck(after delay: Duration) {

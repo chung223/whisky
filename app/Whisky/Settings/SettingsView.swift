@@ -167,6 +167,8 @@ struct SettingsView: View {
                 .disabled(!model.hasAccessibility)
             }
 
+            PresetSection(model: model)
+
             Section("權限") {
                 permission("輔助使用", granted: model.hasAccessibility, required: true,
                            purpose: "讀取與移動選單列圖示。", action: model.actions.requestAccessibility)

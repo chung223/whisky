@@ -16,6 +16,11 @@ final class SettingsModel {
         var setGlassInNotch: (Bool) -> Void = { _ in }
         var setAnnouncesChanges: (Bool) -> Void = { _ in }
         var setPlacesRunAtLaunch: (Bool) -> Void = { _ in }
+        var savePreset: (_ name: String, LayoutPreset.Trigger) -> Void = { _, _ in }
+        var deletePreset: (UUID) -> Void = { _ in }
+        var setPresetTrigger: (UUID, LayoutPreset.Trigger) -> Void = { _, _ in }
+        var renamePreset: (UUID, String) -> Void = { _, _ in }
+        var activatePreset: (UUID) -> Void = { _ in }
         var setShowsRealImages: (Bool) -> Void = { _ in }
         /// Returns a problem to show, or nil.
         var setSpacer: (Bool) async -> String? = { _ in nil }
@@ -51,6 +56,8 @@ final class SettingsModel {
     var glassInNotch = false
     var announcesChanges = true
     var placesRunAtLaunch = true
+    var presets: [LayoutPreset] = []
+    var activePresetID: UUID?
     var hasNotch = false
     var spacerOn = false
     var spacerBusy = false

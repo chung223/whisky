@@ -29,6 +29,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var diagnostics: Diagnostics?
     private var memory: LayoutMemory!
     private var watcher: ChangeWatcher!
+    private let presets = PresetManager()
     private let settings = SettingsController()
     private let welcome = WelcomeController()
 
@@ -54,6 +55,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         arranger.spacer = spacer
         memory = LayoutMemory(model: model, arranger: arranger)
+        memory.onRemember = { [weak self] keys in self?.presets.syncActive(keys) }
+        presets.onSwitch = { [weak self] preset in self?.switchTo(preset) }
+        presets.start()
         editor = LayoutEditorController(model: model, arranger: arranger)
         editor.isGlassInNotch = { [weak self] in self?.arranger.revealAnchor != nil }
         editor.onApplied = { [weak self] in await self?.memory.remember() }
@@ -121,6 +125,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         menu.addItem(.separator())
 
+        menu.addItem(presetsMenuItem())
+
         let spacerItem = item("只顯示排好的圖示（分隔項目）", #selector(toggleSpacer))
         spacerItem.state = spacer.isActive ? .on : .off
         spacerItem.toolTip = "在排好的圖示左邊放一個分隔項目，把其他圖示推到螢幕外；它們仍可從 Whisky Bar 打開。"
@@ -135,6 +141,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(item("關於 Whisky", #selector(showAbout)))
         menu.addItem(item("結束 Whisky", #selector(quit), key: "q"))
         return menu
+    }
+
+    /// Layout presets: pick one by hand, or save the current arrangement as a new one (in Settings).
+    private func presetsMenuItem() -> NSMenuItem {
+        let parent = NSMenuItem(title: "情境版面", action: nil, keyEquivalent: "")
+        let submenu = NSMenu()
+        for preset in presets.presets {
+            let entry = item(preset.name, #selector(pickPreset(_:)))
+            entry.representedObject = preset.id.uuidString
+            entry.state = preset.id == presets.activeID ? .on : .off
+            entry.toolTip = preset.trigger.title
+            submenu.addItem(entry)
+        }
+        if !presets.presets.isEmpty { submenu.addItem(.separator()) }
+        submenu.addItem(item("把目前的版面存成情境…", #selector(showSettings)))
+        parent.submenu = submenu
+        return parent
+    }
+
+    @objc private func pickPreset(_ sender: NSMenuItem) {
+        guard let id = (sender.representedObject as? String).flatMap(UUID.init(uuidString:)) else { return }
+        presets.activate(id)
     }
 
     /// A submenu listing the third-party items macOS draws now; choosing one sends it behind the notch.
@@ -281,6 +309,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             setGlassInNotch: { [weak self] on in self?.glassInNotch = on },
             setAnnouncesChanges: { [weak self] on in self?.watcher.isEnabled = on },
             setPlacesRunAtLaunch: { [weak self] on in self?.placesRunAtLaunch = on },
+            savePreset: { [weak self] name, trigger in
+                guard let self, let keys = self.memory.saved, !keys.isEmpty else { return }
+                self.presets.save(name: name, trigger: trigger, keys: keys)
+            },
+            deletePreset: { [weak self] id in self?.presets.delete(id) },
+            setPresetTrigger: { [weak self] id, trigger in self?.presets.setTrigger(trigger, for: id) },
+            renamePreset: { [weak self] id, name in self?.presets.rename(id, to: name) },
+            activatePreset: { [weak self] id in self?.presets.activate(id) },
             setShowsRealImages: { [weak self] on in
                 self?.model.showsRealImages = on
                 if on, !Permissions.hasScreenRecording { Permissions.requestScreenRecording() }
@@ -310,6 +346,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.glassInNotch = glassInNotch
         model.announcesChanges = watcher.isEnabled
         model.placesRunAtLaunch = placesRunAtLaunch
+        if model.presets != presets.presets { model.presets = presets.presets }
+        model.activePresetID = presets.activeID
         if !model.spacerBusy { model.spacerOn = spacer.isActive }
         model.watchesLayout = memory.isWatching
         model.savedLayoutCount = memory.saved?.count
@@ -380,6 +418,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// of it are the arranged run; otherwise it stays collapsed (and the glass in the menu bar) and the drift notice
     /// offers to put things right. Whisky doesn't move items on its own.
     private func startSpacer() async {
+        // The preset the conditions call for now: its arrangement is what the launch check compares with.
+        if let preset = presets.selectForLaunch(), !preset.keys.isEmpty, preset.keys != memory.saved {
+            memory.saved = preset.keys
+        }
         await spacer.start()
         if spacer.isActive {
             // Let the menu bar finish laying out the new spacer before judging (measured: a second after creation
@@ -416,8 +458,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// minutes and leaves the drift notice instead.
     private func placeRunWhenIdle() async {
         Log.write("spacer: not where the arrangement starts; will put it back once the user is idle")
+        await putBackWhenIdle(status: "正在排回你的版面，先別動滑鼠")
+    }
+
+    /// Waits until the user has left the mouse and keyboard alone for 5 s (and the menu bar shows, nothing else is
+    /// moving, Whisky Bar is closed), then puts the remembered arrangement in place. Gives up after ten minutes and
+    /// leaves the drift notice instead.
+    private func putBackWhenIdle(status: String) async {
         guard await Arranger.waitUntilUserIdle(5) else {
-            Log.write("spacer: still not put back after ten minutes; the drift notice offers it")
+            Log.write("layout: still not put back after ten minutes; the drift notice offers it")
             memory.scheduleCheck(after: .zero)
             return
         }
@@ -425,14 +474,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             try? await Task.sleep(for: .seconds(1))
             _ = await Arranger.waitUntilUserIdle(5)
         }
-        Log.write("spacer: putting the arrangement back (idle \(Int(Arranger.userIdleSeconds)) s)")
-        await restoreArrangement(pausingForUser: true)
+        Log.write("layout: putting the arrangement in place (idle \(Int(Arranger.userIdleSeconds)) s)")
+        await restoreArrangement(pausingForUser: true, status: status)
+    }
+
+    /// The conditions changed, or the user picked a preset: its arrangement becomes the one to keep.
+    private func switchTo(_ preset: LayoutPreset) {
+        guard !preset.keys.isEmpty else { return }
+        memory.saved = preset.keys
+        Task { await putBackWhenIdle(status: "換成「\(preset.name)」版面，先別動滑鼠") }
     }
 
     /// Puts the remembered arrangement back, showing it at the notch while it happens.
     @discardableResult
-    private func restoreArrangement(pausingForUser: Bool) async -> Result<Int, ItemMover.Failure> {
-        bar.showStatus("正在排回你的版面，先別動滑鼠")
+    private func restoreArrangement(pausingForUser: Bool, status: String = "正在排回你的版面，先別動滑鼠") async -> Result<Int, ItemMover.Failure> {
+        bar.showStatus(status)
         arranger.pausesForUser = pausingForUser
         let result = await memory.restore()
         arranger.pausesForUser = false
@@ -505,6 +561,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             case ("arrange", _): editor.show()
             case ("settings", _): settings.show()
             case ("welcome", _): welcome.show()
+            case ("save-preset", _):
+                // whisky://save-preset?name=<name>&trigger=otherwise|externalDisplay|onBattery|manual
+                let query = Dictionary((URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []).map { ($0.name, $0.value ?? "") }, uniquingKeysWith: { a, _ in a })
+                if let name = query["name"], !name.isEmpty, let keys = memory.saved, !keys.isEmpty {
+                    presets.save(name: name, trigger: LayoutPreset.Trigger(rawValue: query["trigger"] ?? "") ?? .manual, keys: keys)
+                }
+            case ("preset", _):
+                // whisky://preset?name=<name>: switch to it by hand.
+                let name = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "name" }?.value
+                if let preset = presets.presets.first(where: { $0.name == name }) { presets.activate(preset.id) }
+            case ("login-item", _):
+                // The same as the switch in Settings: whisky://login-item?on=1 or on=0.
+                LoginItem.setEnabled(url.query()?.contains("on=1") == true)
+                Log.write("login item: \(LoginItem.isEnabled ? "on" : LoginItem.needsApproval ? "needs approval" : "off")")
             case ("notch-peek", _): bar.showNotchPeekForTesting()
             case ("notch-alert", _):
                 // Testing: points out the first hidden item as if it had changed.
