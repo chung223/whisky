@@ -36,6 +36,14 @@ struct WelcomeView: View {
                 }
             }
 
+            if !PlatformSupport.movesItems {
+                Label("\(PlatformSupport.versionName) 的選單列整個重寫了，Whisky 目前只能幫你打開被藏起來的圖示，還不能排列它們。",
+                      systemImage: "exclamationmark.triangle.fill")
+                    .font(.callout)
+                    .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
             step(number: 1, title: "授權「輔助使用」", done: model.hasAccessibility) {
                 Text("Whisky 要靠它讀出選單列上的圖示和它們的選單，也要靠它幫你排列。授權後不用重開。")
                 if !model.hasAccessibility {

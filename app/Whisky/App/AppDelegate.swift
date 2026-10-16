@@ -35,7 +35,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
-        Log.write("launch Whisky \(version) on macOS \(ProcessInfo.processInfo.operatingSystemVersionString)")
+        Log.write("launch Whisky \(version) on macOS \(ProcessInfo.processInfo.operatingSystemVersionString)\(PlatformSupport.movesItems ? "" : "; moving items is off (\(PlatformSupport.versionName))")")
 
         permissions = Permissions { [weak self] trusted in
             guard let self else { return }
@@ -115,8 +115,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let menu = NSMenu()
         let shortcut = hotKey == nil ? "" : HotKeyPreference.shortcut.map { "（\($0.display)）" } ?? ""
         menu.addItem(item("打開 Whisky Bar\(shortcut)", #selector(toggleBar)))
-        menu.addItem(item("排列選單列…", #selector(showEditor)))
-        menu.addItem(sendBehindNotchItem())
+        if PlatformSupport.movesItems {
+            menu.addItem(item("排列選單列…", #selector(showEditor)))
+            menu.addItem(sendBehindNotchItem())
+        }
         if let drift = model.layoutDrift {
             let restore = item("排回你排好的版面", #selector(restoreLayoutFromMenu))
             restore.image = NSImage(systemSymbolName: "arrow.uturn.backward.circle", accessibilityDescription: nil)
@@ -125,12 +127,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         menu.addItem(.separator())
 
-        menu.addItem(presetsMenuItem())
+        if PlatformSupport.movesItems { menu.addItem(presetsMenuItem()) }
 
-        let spacerItem = item("只顯示排好的圖示（分隔項目）", #selector(toggleSpacer))
-        spacerItem.state = spacer.isActive ? .on : .off
-        spacerItem.toolTip = "在排好的圖示左邊放一個分隔項目，把其他圖示推到螢幕外；它們仍可從 Whisky Bar 打開。"
-        menu.addItem(spacerItem)
+        if PlatformSupport.movesItems {
+            let spacerItem = item("只顯示排好的圖示（分隔項目）", #selector(toggleSpacer))
+            spacerItem.state = spacer.isActive ? .on : .off
+            spacerItem.toolTip = "在排好的圖示左邊放一個分隔項目，把其他圖示推到螢幕外；它們仍可從 Whisky Bar 打開。"
+            menu.addItem(spacerItem)
+        } else {
+            let note = NSMenuItem(title: "\(PlatformSupport.versionName) 還不支援排列與分隔項目", action: nil, keyEquivalent: "")
+            note.isEnabled = false
+            menu.addItem(note)
+        }
         menu.addItem(item("設定…", #selector(showSettings), key: ","))
 
         if !permissions.isAccessibilityTrusted {
@@ -348,6 +356,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.showsRealImages = self.model.showsRealImages
         model.hasNotch = NotchPresenter.isAvailable
         model.opensFromNotch = bar.opensFromNotch
+        model.movesItems = PlatformSupport.movesItems
+        model.platformName = PlatformSupport.versionName
         model.glassInNotch = glassInNotch
         model.announcesChanges = watcher.isEnabled
         model.placesRunAtLaunch = placesRunAtLaunch
@@ -385,6 +395,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Turns the spacer on or off and takes the result as the arrangement. Returns a problem to show, or nil.
     private func setSpacer(_ on: Bool) async -> String? {
+        if on, !PlatformSupport.movesItems { return "\(PlatformSupport.versionName) 還不支援分隔項目。" }
         defer { applyGlassPlacement() }
         if !on {
             arranger.disableSpacer()
@@ -536,7 +547,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Only with the spacer: without it, macOS reshuffles the items beside the notch whenever the glass leaves
         // (measured 2026-10-15), which would undo the user's arrangement every time.
         // And only once the spacer is expanded: put back by AppKit at launch it is 1 pt wide and does nothing yet.
-        let inNotch = glassInNotch && bar.opensFromNotch && NotchPresenter.isAvailable && spacer.isActive && spacer.isExpanded
+        let inNotch = PlatformSupport.movesItems && glassInNotch && bar.opensFromNotch && NotchPresenter.isAvailable
+            && spacer.isActive && spacer.isExpanded
         if inNotch {
             arranger.revealAnchor = { [weak self] in self?.statusItem.setShown(true) }
             arranger.concealAnchor = { [weak self] in self?.statusItem.setShown(false) }

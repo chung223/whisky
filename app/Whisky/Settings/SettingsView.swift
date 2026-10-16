@@ -36,6 +36,22 @@ struct SettingsView: View {
                 }
             }
 
+            if !model.movesItems {
+                Section {
+                    Label {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("\(model.platformName) 還沒完整支援")
+                                .font(.headline)
+                            Text("這版 macOS 的選單列整個重寫了。Whisky 現在只會幫你打開被藏起來的圖示（重建選單、直接點按），不會移動任何圖示：排列、分隔項目、自動排回、酒杯住在瀏海裡都暫時停用。")
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    } icon: {
+                        Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                    }
+                }
+            }
+
             Section("Whisky Bar") {
                 LabeledContent("打開 Whisky Bar 的快捷鍵") {
                     ShortcutRecorder(
@@ -56,18 +72,20 @@ struct SettingsView: View {
                 .disabled(!model.hasNotch)
                 Toggle(isOn: binding(\.glassInNotch, model.actions.setGlassInNotch)) {
                     Text("酒杯住在瀏海裡")
-                    Text(model.spacerOn
+                    Text(!model.movesItems
+                         ? "\(model.platformName) 暫不支援。"
+                         : model.spacerOn
                          ? "選單列上不放酒杯，多一格給排好的圖示；只有搬移圖示時酒杯才出來。右鍵點瀏海打開 Whisky 的選單。"
                          : "要先打開下面的「只顯示排好的圖示」：沒有它的話，酒杯一離開，macOS 就會重排瀏海旁的圖示。")
                 }
-                .disabled(!model.hasNotch || !model.opensFromNotch || !model.spacerOn)
+                .disabled(!model.hasNotch || !model.opensFromNotch || !model.spacerOn || !model.movesItems)
                 Toggle(isOn: binding(\.announcesChanges, model.actions.setAnnouncesChanges)) {
                     Text("藏起來的圖示有變化時提醒我")
                     Text(model.hasScreenRecording
                          ? "例如出現通知標記：瀏海會長出來幾秒顯示它，點一下打開。一直在變的數字（CPU、網速）不算。"
                          : "需要「螢幕錄製」權限。")
                 }
-                .disabled(!model.hasNotch || !model.opensFromNotch || !model.hasScreenRecording)
+                .disabled(!model.hasNotch || !model.opensFromNotch || !model.hasScreenRecording || !model.movesItems)
                 Toggle(isOn: binding(\.showsRealImages, model.actions.setShowsRealImages)) {
                     Text("顯示圖示的真實圖案")
                     Text(model.hasScreenRecording
@@ -140,7 +158,7 @@ struct SettingsView: View {
                     }
                     Text("其他圖示推到螢幕外，不會因為某個圖示變寬而被補位。")
                 }
-                .disabled(model.spacerBusy || !model.hasAccessibility)
+                .disabled(model.spacerBusy || !model.hasAccessibility || !model.movesItems)
                 if let problem = model.spacerProblem {
                     note(problem, warning: true)
                 }
@@ -164,7 +182,7 @@ struct SettingsView: View {
                 LabeledContent("決定哪些圖示留在選單列上") {
                     Button("排列選單列…", action: model.actions.showEditor)
                 }
-                .disabled(!model.hasAccessibility)
+                .disabled(!model.hasAccessibility || !model.movesItems)
             }
 
             PresetSection(model: model)

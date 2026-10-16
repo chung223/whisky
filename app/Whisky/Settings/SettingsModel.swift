@@ -59,6 +59,9 @@ final class SettingsModel {
     var presets: [LayoutPreset] = []
     var activePresetID: UUID?
     var hasNotch = false
+    /// False on macOS 27 (or while simulating it): nothing that moves items is available.
+    var movesItems = true
+    var platformName = ""
     var spacerOn = false
     var spacerBusy = false
     var spacerProblem: String?

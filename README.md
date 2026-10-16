@@ -7,6 +7,7 @@ Whisky 把它們找回來，讓你決定哪些留在選單列上，其他的收�
 
 > 目前是 0.9，只支援 **macOS 26（Tahoe）、Apple Silicon**，仍在開發中。
 > macOS 27 的選單列機制完全不同，還沒支援（研究筆記見 [wiki](wiki/concepts/menubar-agent-allow-list.md)）。
+> 在 27 上 Whisky 會自動降級：仍能從 Whisky Bar 打開被藏起來的圖示，但不會移動任何圖示（排列、分隔項目、自動排回都停用）。
 
 ## 功能
 

@@ -89,7 +89,7 @@ final class LayoutMemory {
 
     /// Compares the run with the arrangement and updates the notice.
     func check() async {
-        guard isWatching, model.isAccessibilityTrusted, !arranger.isBusy else { return }
+        guard PlatformSupport.movesItems, isWatching, model.isAccessibilityTrusted, !arranger.isBusy else { return }
         await model.refresh(captureGlyphs: false)
         // runBoundary, not the glass: it may live in the notch.
         guard !arranger.isBusy, arranger.runBoundary() != nil, arranger.isMenuBarShown() else { return }

@@ -43,7 +43,8 @@ final class ChangeWatcher {
     }
 
     private func look() async {
-        guard isEnabled, !isLooking, canAnnounce(), Permissions.hasScreenRecording, model.isAccessibilityTrusted,
+        // On macOS 27 items aren't windows of their own, so there is nothing to capture one by one.
+        guard PlatformSupport.movesItems, isEnabled, !isLooking, canAnnounce(), Permissions.hasScreenRecording, model.isAccessibilityTrusted,
               !arranger.isBusy, arranger.temporarilyShown.isEmpty, !Self.isScreenLocked
         else { return }
         isLooking = true

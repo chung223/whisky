@@ -265,7 +265,7 @@ private struct BarCell: View {
         .help(item.tooltip)
         .accessibilityLabel(item.tooltip)
         .contextMenu {
-            if item.scanned.placement == .hidden, item.scanned.windowID != nil {
+            if item.scanned.placement == .hidden, item.scanned.windowID != nil, PlatformSupport.movesItems {
                 Button("放到選單列上") { actions.pin(item) }
                 Divider()
             }

@@ -13,6 +13,7 @@ final class ItemMover {
         case userBusy
         case didNotMove
         case menuBarHidden
+        case unsupported
 
         var description: String {
             switch self {
@@ -23,6 +24,7 @@ final class ItemMover {
             case .userBusy: "滑鼠按鍵一直按著"
             case .didNotMove: "圖示沒有移到位置"
             case .menuBarHidden: "選單列現在是隱藏的（全螢幕 App 或自動隱藏選單列），先讓它出現再試"
+            case .unsupported: "\(PlatformSupport.versionName) 還不支援移動選單列圖示"
             }
         }
     }
@@ -35,6 +37,7 @@ final class ItemMover {
     }
 
     func move(_ itemID: UInt32, to destination: MoveDestination, attempts: Int = 3) async throws(Failure) {
+        guard PlatformSupport.movesItems else { throw .unsupported }
         guard !isBusy else { throw .busy }
         isBusy = true
         defer { isBusy = false }

@@ -36,6 +36,8 @@ final class SpacerController: NSObject {
 
     /// Creates the spacer if it is enabled (its autosave position puts it back where it was).
     func start() async {
+        // On macOS 27 a wide item doesn't push the others away (the menu bar is one system window).
+        guard PlatformSupport.movesItems else { return }
         if isEnabled, statusItem == nil { await create(expanded: Self.createsExpandedAtLaunch) }
     }
 

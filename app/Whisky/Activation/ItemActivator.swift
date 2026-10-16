@@ -38,7 +38,7 @@ final class ItemActivator {
     }
 
     func press(_ item: ScannedItem) async {
-        if item.placement == .hidden, let windowID = item.windowID {
+        if item.placement == .hidden, let windowID = item.windowID, PlatformSupport.movesItems {
             await showTemporarily(item, windowID: windowID)
         } else {
             await pressInPlace(item)
