@@ -21,6 +21,12 @@ enum UserMouseButtons {
 /// field 0x33 set to the dragged item's window, so the window server drags *that* item whatever its position, even
 /// behind the notch. If routing ever degraded to the pointer position, the worst case is dragging Whisky's own icon.
 /// The mouse-up is posted only once the item has been lifted (see `DragReleaseGate`), aimed at the target as it is then.
+///
+/// A lifted item let go outside the menu bar is removed from it, and an app whose item has
+/// `NSStatusItem.Behavior.terminationOnRemoval` quits: on 2026-10-18 貼貼 and MenuBarUSB did, during moves made while a
+/// test tool added a virtual display and moved the pointer. So when the pointer moved under the drag, or the target is
+/// no longer in the menu bar of the display the drag started on, the item is let go on Whisky's icon instead, which is
+/// always in the menu bar; the move then counts as interrupted.
 enum DragPoster {
     struct Report: Sendable, CustomStringConvertible {
         var posted = false
@@ -33,7 +39,7 @@ enum DragPoster {
             guard posted else { return "not posted (a mouse button was down)" }
             let lift = liftedAfter.map { "lifted after \($0) ms" } ?? "never seen lifted"
             return "\(lift), released after \(releasedAfter) ms at (\(Int(mouseUp.x)), \(Int(mouseUp.y)))"
-                + (interrupted ? ", cut short by the user's mouse" : "")
+                + (interrupted ? ", let go on Whisky's icon (pointer moved, or the target left the menu bar)" : "")
         }
     }
 
@@ -74,6 +80,7 @@ enum DragPoster {
         let start = clock.now
         func elapsed() -> Int { Int((clock.now - start) / .milliseconds(1)) }
         var gate = DragReleaseGate(itemID: itemID, originalFrame: originalFrame, waitsForStillness: waitsForStillness)
+        var pointer = PointerWatch(home: mouseDown)
 
         down.post(tap: .cgSessionEventTap)
         report.posted = true
@@ -86,17 +93,44 @@ enum DragPoster {
                 report.mouseUp = MovePlanning.dropPoint(for: destination, targetFrame: target)
             }
             if ready { break }
-            if UserMouseButtons.isAnyHeld || UserMouseButtons.pressCount != presses {
+            if UserMouseButtons.isAnyHeld || UserMouseButtons.pressCount != presses || pointer.movedAway() {
                 report.interrupted = true
                 break
             }
             let waited = clock.now - start
             if waited >= releaseTimeout || (!gate.isLifted && waited >= liftTimeout) { break }
         }
+        if report.interrupted || !isSafeDrop(report.mouseUp, startingAt: mouseDown) {
+            report.interrupted = true
+            report.mouseUp = mouseDown
+        }
         report.releasedAfter = elapsed()
         event(.leftMouseUp, at: report.mouseUp)?.post(tap: .cgSessionEventTap)
         usleep(20_000)
         if UserMouseButtons.pressCount != presses { report.interrupted = true }
         return report
+    }
+
+    private static func isSafeDrop(_ point: CGPoint, startingAt start: CGPoint) -> Bool {
+        var ids = [CGDirectDisplayID](repeating: 0, count: 16)
+        var count: UInt32 = 0
+        guard CGGetActiveDisplayList(UInt32(ids.count), &ids, &count) == .success else { return false }
+        return MovePlanning.isSafeDrop(point, startingAt: start, displays: ids.prefix(Int(count)).map(CGDisplayBounds))
+    }
+}
+
+/// Whisky posts no moves between its mouse-down and mouse-up, so once the pointer has reached the mouse-down point
+/// it stays there unless something else moves it.
+private struct PointerWatch {
+    let home: CGPoint
+    private var arrived = false
+
+    init(home: CGPoint) { self.home = home }
+
+    mutating func movedAway() -> Bool {
+        guard let now = CGEvent(source: nil)?.location else { return false }
+        let atHome = abs(now.x - home.x) <= 3 && abs(now.y - home.y) <= 3
+        if atHome { arrived = true }
+        return arrived && !atHome
     }
 }

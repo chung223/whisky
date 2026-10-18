@@ -89,15 +89,25 @@ final class PresetManager {
         return preset
     }
 
-    /// Displays come and go in bursts of notifications, and some flicker: act only on conditions that held still.
+    /// How long new conditions must hold before the preset follows them (and before a put-back starts after the
+    /// displays changed, `AppDelegate.putBackWhenIdle`). Displays come and go in bursts of notifications, some flicker,
+    /// and test tools add a virtual display for half a minute at a time: on 2026-10-18 one came and went three times in
+    /// six minutes, and each time Whisky rearranged the menu bar while the test was moving the pointer.
+    static let settleTime: Duration = .seconds(60)
+
     private func evaluateSoon(after delay: Duration = .seconds(4)) {
         pendingEvaluation?.cancel()
         pendingEvaluation = Task { [weak self] in
             try? await Task.sleep(for: delay)
             guard let self, !Task.isCancelled, !self.displaysAsleep else { return }
             let first = Self.currentConditions()
-            try? await Task.sleep(for: .seconds(3))
-            guard !Task.isCancelled, !self.displaysAsleep, Self.currentConditions() == first else { return }
+            guard first != self.lastConditions else { return }
+            Log.write("presets: \(Self.describe(first)); switching once it has held for \(Self.settleTime.components.seconds) s")
+            let deadline = ContinuousClock.now + Self.settleTime
+            while ContinuousClock.now < deadline {
+                try? await Task.sleep(for: .seconds(2))
+                guard !Task.isCancelled, !self.displaysAsleep, Self.currentConditions() == first else { return }
+            }
             self.evaluate()
         }
     }

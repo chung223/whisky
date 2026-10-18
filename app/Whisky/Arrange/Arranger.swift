@@ -24,11 +24,54 @@ final class Arranger {
         self.model = model
         self.anchorFrame = anchorFrame
         self.anchorNumber = anchorNumber
+        displays = Self.displayLayout()
+        displayObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.noteDisplays() }
+        }
     }
 
     /// A drag is under way, or a whole arrangement is (between its drags too).
     var isBusy: Bool { mover.isBusy || arranging > 0 }
     private var arranging = 0
+
+    // MARK: - Displays
+
+    /// The displays and where they are. macOS posts the screen notification for many things besides displays coming
+    /// and going (the log shows bursts of them with nothing plugged in), so only a change of this counts.
+    private static func displayLayout() -> [String] {
+        NSScreen.screens.map { screen in
+            let number = (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value ?? 0
+            return "\(number) \(screen.frame)"
+        }
+    }
+
+    private var displays: [String]
+    private var displayObserver: NSObjectProtocol?
+    /// When a display last came, went or moved.
+    private(set) var lastDisplayChange = ContinuousClock.now - .seconds(3600)
+    /// The display layout when the arrangement under way began (nil when none is).
+    private var arrangementDisplays: [String]?
+
+    private func noteDisplays() {
+        let now = Self.displayLayout()
+        guard now != displays else { return }
+        displays = now
+        lastDisplayChange = .now
+        Log.write("displays: \(now.count) now")
+    }
+
+    /// Marks an arrangement (many moves) under way; nested calls share the outermost one's display layout.
+    private func beginArranging() {
+        if arranging == 0 { arrangementDisplays = Self.displayLayout() }
+        arranging += 1
+    }
+
+    private func endArranging() {
+        arranging -= 1
+        if arranging == 0 { arrangementDisplays = nil }
+    }
 
     // MARK: - The glass, on demand
 
@@ -221,7 +264,11 @@ final class Arranger {
         allowed.insert(spacerID)
         // With the spacer: send the known strays away, then only re-pin (an unnamed window is never touched).
         await holdAnchor()
-        defer { releaseAnchor() }
+        beginArranging()
+        defer {
+            endArranging()
+            releaseAnchor()
+        }
         for stray in strays where isInRun(stray) && !wanted.contains(stray) {
             guard await pauseForUserIfNeeded(), !Task.isCancelled else { return .failure(.userBusy) }
             if case .failure(let failure) = await sendAwayWindow(stray, label: "\(stray) (stray)") { return .failure(failure) }
@@ -245,8 +292,8 @@ final class Arranger {
             spacer.setExpanded(false)
             try? await Task.sleep(for: .milliseconds(400))
         }
-        arranging += 1
-        defer { arranging -= 1 }
+        beginArranging()
+        defer { endArranging() }
         guard await pauseForUserIfNeeded(), !Task.isCancelled else { return .failure(.userBusy) }
         if case .failure(let failure) = await pinWindow(spacerID, label: "spacer") { return .failure(failure) }
         spacer.setExpanded(true)
@@ -298,9 +345,9 @@ final class Arranger {
     func rebuild(wanted: [UInt32], allowSendAway: Bool = true, onlyIDs: Set<UInt32>? = nil,
                  progress: @escaping @MainActor (Int, Int) -> Void) async -> Result<Int, ItemMover.Failure> {
         await holdAnchor()
-        arranging += 1
+        beginArranging()
         defer {
-            arranging -= 1
+            endArranging()
             releaseAnchor()
         }
         guard let first = currentPlan(wanted: wanted, allowSendAway: allowSendAway) else { return failed("rebuild", .anchorUnavailable).map { 0 } }
@@ -433,6 +480,10 @@ final class Arranger {
     }
 
     private func run(_ label: String, _ body: () async throws(ItemMover.Failure) -> Void) async -> Result<Void, ItemMover.Failure> {
+        // A move planned on one display layout can land outside the menu bar on another: stop the arrangement.
+        if let arrangementDisplays, arrangementDisplays != Self.displayLayout() {
+            return failed("\(label) (the displays changed; stopping)", .displaysChanged)
+        }
         Log.write("arrange: \(label)")
         do {
             try await body()

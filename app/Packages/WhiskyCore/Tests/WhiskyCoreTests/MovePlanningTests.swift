@@ -17,6 +17,23 @@ struct MovePlanningTests {
         #expect(MovePlanning.dropPoint(for: .leftOf(7), targetFrame: frame(-4000)).x == -3999)
     }
 
+    @Test("A drop is safe only in the menu bar the drag started in (2026-10-18: items let go elsewhere were removed)")
+    func safeDrops() {
+        let builtIn = CGRect(x: 0, y: 0, width: 1512, height: 982)
+        let virtual = CGRect(x: -1920, y: 0, width: 1920, height: 1080)
+        let glass = CGPoint(x: 1257, y: 16)
+        // Pinning next to the glass, and sending far left past every display (how send-aways work).
+        #expect(MovePlanning.isSafeDrop(CGPoint(x: 1240, y: 16), startingAt: glass, displays: [builtIn]))
+        #expect(MovePlanning.isSafeDrop(CGPoint(x: -4899, y: 16), startingAt: glass, displays: [builtIn, virtual]))
+        // A send-away that landed on the virtual display's menu bar, as in the log.
+        #expect(!MovePlanning.isSafeDrop(CGPoint(x: -511, y: 15), startingAt: glass, displays: [builtIn, virtual]))
+        // Below the menu bar, on the same display or off every display.
+        #expect(!MovePlanning.isSafeDrop(CGPoint(x: 1240, y: 300), startingAt: glass, displays: [builtIn]))
+        #expect(!MovePlanning.isSafeDrop(CGPoint(x: -4899, y: 300), startingAt: glass, displays: [builtIn]))
+        // A drag that didn't start on any display can't be judged.
+        #expect(!MovePlanning.isSafeDrop(CGPoint(x: 1240, y: 16), startingAt: CGPoint(x: 5000, y: 16), displays: [builtIn]))
+    }
+
     @Test("Satisfied only when immediately beside the target")
     func satisfied() {
         let frames: [UInt32: CGRect] = [1: frame(100), 2: frame(134), 3: frame(168)]

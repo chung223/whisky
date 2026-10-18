@@ -14,6 +14,10 @@ final class ItemMover {
         case didNotMove
         case menuBarHidden
         case unsupported
+        /// Something else moved the pointer while an item was lifted (the user, or another program's test).
+        case interrupted
+        /// The displays changed while an arrangement was under way.
+        case displaysChanged
 
         var description: String {
             switch self {
@@ -25,8 +29,13 @@ final class ItemMover {
             case .didNotMove: "圖示沒有移到位置"
             case .menuBarHidden: "選單列現在是隱藏的（全螢幕 App 或自動隱藏選單列），先讓它出現再試"
             case .unsupported: "\(PlatformSupport.versionName) 還不支援移動選單列圖示"
+            case .interrupted: "移動時滑鼠被動到了，先停下來"
+            case .displaysChanged: "螢幕剛接上或拔掉，先停下來"
             }
         }
+
+        /// Worth trying again once things are quiet (nothing about the menu bar itself went wrong).
+        var isTransient: Bool { self == .interrupted || self == .displaysChanged || self == .userBusy }
     }
 
     private(set) var isBusy = false
@@ -68,6 +77,8 @@ final class ItemMover {
             let placed = await settle(itemID, destination)
             Log.write("move \(itemID) \(destination) attempt \(attempt): \(report); \(placed ? "verified" : "not in place")")
             if placed { return }
+            // The item was let go on Whisky's icon instead (`DragPoster`); trying again would fight whoever moved the pointer.
+            if report.interrupted { throw .interrupted }
         }
         throw .didNotMove
     }

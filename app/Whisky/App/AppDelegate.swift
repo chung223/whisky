@@ -498,29 +498,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// Waits until the user has left the mouse and keyboard alone for 5 s (and the menu bar shows, nothing else is
-    /// moving, Whisky Bar is closed), then puts the remembered arrangement in place. Gives up after ten minutes and
-    /// leaves the drift notice instead.
+    /// moving, Whisky Bar is closed, the displays have held still for `PresetManager.settleTime`), then puts the
+    /// remembered arrangement in place. One stopped by something passing (the pointer moved under a drag, a display
+    /// came or went) leaves items hidden halfway, so it is tried again the same way, up to three times. Gives up
+    /// after ten minutes and leaves the drift notice instead.
     private func putBackWhenIdle(status: String) async {
         Log.write("layout: will put the arrangement in place once the user is idle")
         let deadline = ContinuousClock.now + .seconds(600)
-        var ready = false
-        while !Task.isCancelled, ContinuousClock.now < deadline {
-            guard await Arranger.waitUntilUserIdle(5, timeout: deadline - ContinuousClock.now) else { break }
-            if arranger.isMenuBarShown(), !arranger.isBusy, !bar.isOpen {
-                ready = true
-                break
+        for attempt in 1...3 {
+            var ready = false
+            while !Task.isCancelled, ContinuousClock.now < deadline {
+                guard await Arranger.waitUntilUserIdle(5, timeout: deadline - ContinuousClock.now) else { break }
+                let displaysSettled = ContinuousClock.now - arranger.lastDisplayChange >= PresetManager.settleTime
+                if displaysSettled, arranger.isMenuBarShown(), !arranger.isBusy, !bar.isOpen {
+                    ready = true
+                    break
+                }
+                try? await Task.sleep(for: .seconds(1))
             }
-            try? await Task.sleep(for: .seconds(1))
-        }
-        guard ready, !Task.isCancelled else {
-            if !Task.isCancelled {
-                Log.write("layout: still not put back after ten minutes; the drift notice offers it")
-                memory.scheduleCheck(after: .zero)
+            guard ready, !Task.isCancelled else {
+                if !Task.isCancelled {
+                    Log.write("layout: still not put back after ten minutes; the drift notice offers it")
+                    memory.scheduleCheck(after: .zero)
+                }
+                return
             }
-            return
+            Log.write("layout: putting the arrangement in place (idle \(Int(Arranger.userIdleSeconds)) s\(attempt > 1 ? ", try \(attempt)" : ""))")
+            let result = await restoreArrangement(automatic: true, status: status)
+            guard case .failure(let failure) = result, failure.isTransient, !Task.isCancelled else { return }
         }
-        Log.write("layout: putting the arrangement in place (idle \(Int(Arranger.userIdleSeconds)) s)")
-        await restoreArrangement(automatic: true, status: status)
     }
 
     /// The conditions changed, or the user picked a preset: its arrangement becomes the one to keep.

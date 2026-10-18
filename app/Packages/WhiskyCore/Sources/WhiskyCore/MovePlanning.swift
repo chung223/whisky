@@ -34,6 +34,16 @@ public enum MovePlanning {
         }
     }
 
+    /// Whether a mouse-up at `point` keeps a dragged status item in the menu bar the drag started in (global top-left
+    /// coordinates; `displays` are the displays' bounds). On the drag's own display only its menu bar band counts; off
+    /// every display (far left, where items are sent away) only that band's height; another display never does. An item
+    /// let go outside the menu bar is removed from it, and apps whose item terminates on removal quit.
+    public static func isSafeDrop(_ point: CGPoint, startingAt start: CGPoint, displays: [CGRect], barHeight: CGFloat = 40) -> Bool {
+        guard let home = displays.first(where: { $0.contains(start) }) else { return false }
+        if let other = displays.first(where: { $0.contains(point) }), other != home { return false }
+        return point.y >= home.minY && point.y < home.minY + barHeight
+    }
+
     /// Whether the item already sits immediately beside the target, ordering every window by minX.
     public static func isSatisfied(itemID: UInt32, destination: MoveDestination, frames: [UInt32: CGRect]) -> Bool {
         let ordered = frames.sorted { ($0.value.minX, $0.key) < ($1.value.minX, $1.key) }.map(\.key)

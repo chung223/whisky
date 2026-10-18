@@ -198,3 +198,8 @@
 - 修正 LayoutMemory（選單列靜止時才採用掃描、配不到視窗的項目保留）與 PresetManager（自動排回不改情境內容）。細節寫進 concepts/platform-verification.md。
 - 把使用者的「平常」「外接螢幕」改回記錄裡最後完整的內容（各 9 項），裝新版後自動排回：7 次移動全部成功，情境仍是 9 項。貼貼沒在執行，所以沒出現。install.sh 的建置輸出改到 build.noindex。
 
+## [2026-10-18] query | 還是不穩定：虛擬螢幕測試、圖示被拖出選單列、版面放不下
+- Dockette 對話的多螢幕測試建立虛擬螢幕，每次 35–45 秒就移除；Whisky 6 分鐘內換了 6 次版面，貼貼與 MenuBarUSB 的圖示被拖出選單列，App 跟著結束。
+- 修正 PresetManager（穩定 60 秒才切換）、Arranger（螢幕一變就停）、AppDelegate（螢幕穩定才排回，被打斷最多再試 3 次）、DragPoster/ItemMover（不在選單列外放開）。WhiskyCore 加 `MovePlanning.isSafeDrop` 與測試。
+- 把 MenuBarUSB 的 `VisibleCC` 改回 true，重開它和貼貼。新版排回 14 次移動都成功，但 Purrbit（166 pt）加進來後「平常」放不下，MenuBarUSB 和 Shot 被擠到瀏海底下。細節在 concepts/platform-verification.md。
+
