@@ -202,4 +202,5 @@
 - Dockette 對話的多螢幕測試建立虛擬螢幕，每次 35–45 秒就移除；Whisky 6 分鐘內換了 6 次版面，貼貼與 MenuBarUSB 的圖示被拖出選單列，App 跟著結束。
 - 修正 PresetManager（穩定 60 秒才切換）、Arranger（螢幕一變就停）、AppDelegate（螢幕穩定才排回，被打斷最多再試 3 次）、DragPoster/ItemMover（不在選單列外放開）。WhiskyCore 加 `MovePlanning.isSafeDrop` 與測試。
 - 把 MenuBarUSB 的 `VisibleCC` 改回 true，重開它和貼貼。新版排回 14 次移動都成功，但 Purrbit（166 pt）加進來後「平常」放不下，MenuBarUSB 和 Shot 被擠到瀏海底下。細節在 concepts/platform-verification.md。
+- 21:57 後續：Purrbit 對話把圖示改窄到 89 pt，識別碼固定為 com.chung.purrbit.app-Item-0，之後不再直接改 Whisky 的設定。「平常」的 7 個圖示都回到瀏海右邊，Whisky 判定版面一致，不需要再排回。
 
