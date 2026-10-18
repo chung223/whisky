@@ -61,21 +61,53 @@ final class LayoutMemory {
     /// skipped for room in between included). Control Center's modules are kept, so putting the run back leaves them
     /// where they were.
     func remember(afterPuttingBack: Bool = false) async {
-        await model.refresh(captureGlyphs: false)
-        guard arranger.isMenuBarShown() else {
-            Log.write("layout: menu bar hidden, keeping the remembered layout")
+        let previous = saved
+        // Whatever goes wrong below, a put-back that finished leaves its preset in place (its items aren't rewritten).
+        let keepRemembered = { [self] (reason: String) in
+            Log.write("layout: \(reason), keeping the remembered layout")
+            if afterPuttingBack, let previous { onRemember?(previous, true) }
+        }
+        guard await refreshWhileStill() else { return keepRemembered("the menu bar kept moving") }
+        // A preset switch may have asked for another arrangement while the menu bar settled.
+        guard saved == previous else {
+            Log.write("layout: the arrangement changed meanwhile; not taking this one")
             return
         }
+        guard arranger.isMenuBarShown() else { return keepRemembered("menu bar hidden") }
         let row = arranger.layoutRow()
         let firstDrawn = row.entries.firstIndex(where: \.isDrawn)
         let current = row.isBounded ? row.entries.map(\.key) : firstDrawn.map { row.entries[$0...].map(\.key) } ?? []
-        // Arranged items missing from this scan (app not running, or slow to answer) keep their place.
-        let run = LayoutDrift.merge(current: current, previous: saved ?? [], present: Set(model.lastScan.map(\.key)))
+        // Arranged items this scan can't place keep their place: app not running or slow to answer, or an item the
+        // scan didn't match to a window (it can't be in the row, which doesn't mean it left).
+        let run = LayoutDrift.merge(current: current, previous: previous ?? [], present: placeableKeys(includingSystem: true))
         saved = run
         unconfirmed = nil
         model.layoutDrift = nil
         Log.write("layout: remembered \(run)")
         onRemember?(run, afterPuttingBack)
+    }
+
+    /// Scans until one scan ran while the menu bar held still. A scan matches items to their windows by frame, so one
+    /// taken while items slide (the glass leaving the menu bar, a display coming or going) leaves some without a
+    /// window and they drop out of the run read from it: on 2026-10-18 One Switch and AlDente went missing that way
+    /// right after the glass left, and a whole run while an external display was being plugged in.
+    private func refreshWhileStill(attempts: Int = 8) async -> Bool {
+        // A scan already under way is joined rather than repeated, and it may have started before `before` below.
+        await model.refresh(captureGlyphs: false)
+        for attempt in 1...attempts {
+            let before = WindowList.statusFrames(inMenuBarRowOnly: true)
+            await model.refresh(captureGlyphs: false)
+            if WindowList.statusFrames(inMenuBarRowOnly: true) == before { return true }
+            if attempt < attempts { try? await Task.sleep(for: .milliseconds(400)) }
+        }
+        return false
+    }
+
+    /// Keys of the scanned items whose place in the run can be read (the scan matched them to a window). One without a
+    /// window (iStat Menus' items on 2026-10-18) isn't in the row whether or not it moved, so it is neither reported
+    /// missing nor dropped from the arrangement. Call after `model.refresh`.
+    private func placeableKeys(includingSystem: Bool = false) -> Set<String> {
+        Set(model.lastScan.filter { $0.windowID != nil && $0.placement != .off && (includingSystem || !BarModel.isSystemOwned($0)) }.map(\.key))
     }
 
     func scheduleCheck(after delay: Duration) {
@@ -101,7 +133,7 @@ final class LayoutMemory {
         // Compared by order, drawn or not: an item that got wider pushing its neighbour behind the notch isn't a change
         // of layout (and putting the run back couldn't make room anyway). Without the spacer the run is as long as
         // the arrangement; items further left are behind the notch whatever their order.
-        let present = Set(model.lastScan.filter { $0.placement != .off && !BarModel.isSystemOwned($0) }.map(\.key))
+        let present = placeableKeys()
         let row = arranger.layoutRow()
         let others = row.entries.filter { !$0.isSystem }.map(\.key)
         let expectedCount = saved.filter { present.contains($0) }.count
@@ -136,7 +168,7 @@ final class LayoutMemory {
         await model.refresh(captureGlyphs: false)
         guard let saved else { return .matches }
         guard arranger.isMenuBarShown() else { return .undecided }
-        let present = Set(model.lastScan.filter { $0.placement != .off && !BarModel.isSystemOwned($0) }.map(\.key))
+        let present = placeableKeys()
         let row = arranger.layoutRow()
         guard row.isBounded else { return .undecided }
         let current = row.entries.filter { !$0.isSystem }.map(\.key)
@@ -146,7 +178,8 @@ final class LayoutMemory {
     }
 
     /// Puts the arranged items back, then takes what the menu bar shows afterwards as the arrangement (an item that
-    /// doesn't fit any more is dropped from it instead of being reported forever).
+    /// doesn't fit any more is dropped from it instead of being reported forever). The layout preset it came from keeps
+    /// all its items (`PresetManager.syncActive`), so the next switch to it tries them all again.
     /// - Parameter automatic: nobody asked for this just now (after a launch, a preset switch): only items Whisky
     ///   knows aren't arranged may be sent away (`Arranger.apply(onlyKnownStrays:)`).
     func restore(automatic: Bool = false) async -> Result<Int, ItemMover.Failure> {

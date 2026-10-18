@@ -5,10 +5,10 @@ cd "$(dirname "$0")/.."
 
 xcodegen generate --quiet
 xcodebuild -project Whisky.xcodeproj -scheme Whisky -configuration Release \
-  -derivedDataPath build/DerivedData -destination 'platform=macOS,arch=arm64' \
+  -derivedDataPath build.noindex/DerivedData -destination 'platform=macOS,arch=arm64' \
   build -quiet
 
-app="build/DerivedData/Build/Products/Release/Whisky.app"
+app="build.noindex/DerivedData/Build/Products/Release/Whisky.app"
 codesign --verify --strict "$app"
 
 # Quit the running copy (it restores nothing, so a plain terminate is safe).

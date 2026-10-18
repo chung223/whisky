@@ -7,6 +7,7 @@ raw/bartender/
 app/**/xcuserdata/
 app/**/DerivedData/
 app/build/
+app/build.noindex/
 app/Whisky.xcodeproj/
 app/Packages/*/.build/
 app/Packages/*/.swiftpm/

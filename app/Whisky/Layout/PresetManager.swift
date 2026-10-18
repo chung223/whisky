@@ -197,8 +197,11 @@ final class PresetManager {
     }
 
     /// The arrangement was taken anew. After a put-back it is the pending preset's arrangement in place: that preset
-    /// becomes active. Otherwise the user arranged or kept something: it belongs to the active preset, and a switch
-    /// still waiting is dropped (the user has just said what they want).
+    /// becomes active, and keeps its items as the user arranged them. What the menu bar shows afterwards can be short
+    /// of some (an app slow to answer, an item that couldn't be moved this time), and writing that into the preset
+    /// lost them for good: on 2026-10-18 a morning of plugging a display in and out took 平常 from nine items to one,
+    /// and every switch back to it then hid the rest. Otherwise the user arranged or kept something: it belongs to the
+    /// active preset, and a switch still waiting is dropped (the user has just said what they want).
     func syncActive(_ keys: [String], afterPuttingBack: Bool) {
         if let pendingID {
             if afterPuttingBack {
@@ -209,7 +212,7 @@ final class PresetManager {
             }
             self.pendingID = nil
         }
-        guard let activeID else { return }
+        guard !afterPuttingBack, let activeID else { return }
         var all = presets
         guard let index = all.firstIndex(where: { $0.id == activeID }), all[index].keys != keys else { return }
         all[index].keys = keys
