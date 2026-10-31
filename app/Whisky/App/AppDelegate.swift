@@ -563,7 +563,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             arranger.revealAnchor = nil
             arranger.concealAnchor = nil
-            statusItem.setShown(true)
+            // On macOS 27 nothing is moved, so the glass anchors nothing: in the menu bar it would only take a slot
+            // and push another item into the system's » overflow. With a notch to open Whisky from, leave it out.
+            let onlyTakesASlot = !PlatformSupport.movesItems && bar.opensFromNotch && NotchPresenter.isAvailable
+            statusItem.setShown(!onlyTakesASlot)
         }
     }
 
