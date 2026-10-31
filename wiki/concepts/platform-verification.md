@@ -208,3 +208,11 @@ mouse-down 落在 Whisky 自己的圖示中心、帶 ⌘ 與欄位 `0x33`（被�
 - 【觀察】另一個對話（Purrbit）把 166 pt 寬的 Purrbit 加進兩套版面。「平常」約要 420 pt，瀏海右邊到 Wi-Fi 只有約 390 pt。排回時 14 次移動都驗證成功，但瀏海邊緣的順序會自己變，最後判定「沒有進展」停手（跟 2026-10-16 自我測試第 9 步一樣）。
 - 修正：情境要穩定 60 秒才切換，排回也要螢幕穩定 60 秒才開始；排列中螢幕一變就在下一步前停下，之後最多再試 3 次；拖曳中游標被別人動到，或放開點不在起點那台螢幕的選單列高度（或落在另一台螢幕上），就改在酒杯上放開（`MovePlanning.isSafeDrop`，有測試）。
 
+### 2026-10-31：macOS 27.2（26B5112a）上的選單列與 allow-list
+
+使用者的 Mac 在 2026-10-19 升級到 27.2，Whisky 從那之後每次啟動都偵測到 27，停用了所有移動（記錄裡 27 上 0 次拖曳）。
+- 【觀察】選單列這一列只剩 Window Server 的一個視窗（layer 24、整條寬），status item 不再有自己的視窗；Whisky 只剩瀏海上的面板（layer 27）。
+- 【觀察】AX 只看得到真的畫出來的項目：MenuBarAgent 的 `AXExtrasMenuBar` 裡有一個有 `AXPress` 的項目（系統 » 溢出按鈕）和三個沒有動作的群組（控制中心、時鐘），第三方只有 MenuBarUSB、One Switch、輸入法、AlDente、Presence、Purrbit。被收進 » 的項目（iStat、Plaud、LLM Wiki、貼貼…）AX 看不到。
+- 【觀察】`MenuBarClientCore` 檔案不在磁碟上（在 dyld shared cache），但 `dlopen` 成功；`MBAssessmentModeConfiguration` 有 `initWithAllowedSystemItems:allowedBundleIdentifiers:`、`initWithUnrestrictedMenuBarItems`；`MBAssessmentModeAssertion` 有 `activateWithConfiguration:completionHandler:`、`activateWithCompletionHandler:`、`activate:completion:`、`invalidate`。
+- 【觀察】用一個測試程式啟用允許清單 12 秒（使用者版面裡的 App ＋ `com.apple.MenuBarAgent`、系統項目 0–8 全部）：activate 回 ok，**» 消失**，原本在 » 裡的 Shot 畫出來了；程式結束後 » 回來、選單列恢復。確認 assertion 綁在程式上（fail-open）。
+- 【未知】Presence 不在清單裡，AX 期間仍列出它；AX 不一定反映有沒有畫出來，需要用截圖確認。

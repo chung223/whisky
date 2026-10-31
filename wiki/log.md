@@ -204,3 +204,8 @@
 - 把 MenuBarUSB 的 `VisibleCC` 改回 true，重開它和貼貼。新版排回 14 次移動都成功，但 Purrbit（166 pt）加進來後「平常」放不下，MenuBarUSB 和 Shot 被擠到瀏海底下。細節在 concepts/platform-verification.md。
 - 21:57 後續：Purrbit 對話把圖示改窄到 89 pt，識別碼固定為 com.chung.purrbit.app-Item-0，之後不再直接改 Whisky 的設定。「平常」的 7 個圖示都回到瀏海右邊，Whisky 判定版面一致，不需要再排回。
 
+
+## [2026-10-31] re | macOS 27.2：allow-list 實測可行
+- 使用者已在 27.2，選單列多了系統的 »。Whisky 27 降級保護正常（0 次拖曳）；改成有瀏海時把酒杯收起來。
+- `MBAssessmentModeAssertion` 在 27.2 可用；只允許使用者版面裡的 App 時 » 消失，程式結束後恢復。下一步：Whisky 的 27 後端（holder 子程式、依情境決定允許清單、從瀏海暫時放出被藏的 App）。
+- 更新 concepts/platform-verification.md。
