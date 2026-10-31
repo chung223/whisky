@@ -42,7 +42,7 @@ struct SettingsView: View {
                         VStack(alignment: .leading, spacing: 4) {
                             Text("\(model.platformName) 還沒完整支援")
                                 .font(.headline)
-                            Text("這版 macOS 的選單列整個重寫了。Whisky 現在只會幫你打開被藏起來的圖示（重建選單、直接點按），不會移動任何圖示：排列、分隔項目、自動排回、酒杯住在瀏海裡都暫時停用。")
+                            Text("這版 macOS 的選單列整個重寫了，圖示不能再移動：排列、分隔項目、自動排回、酒杯住在瀏海裡都停用。改用下面的「只顯示排好的 App」決定哪些 App 留在選單列上。")
                                 .foregroundStyle(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
@@ -140,49 +140,60 @@ struct SettingsView: View {
             }
 
             Section("選單列") {
-                Toggle(isOn: Binding(
-                    get: { model.spacerOn },
-                    set: { on in
-                        model.spacerBusy = true
-                        model.spacerProblem = nil
-                        Task {
-                            model.spacerProblem = await model.actions.setSpacer(on)
-                            model.spacerBusy = false
-                            model.actions.refresh()
+                if !model.movesItems {
+                    Toggle(isOn: binding(\.restrictsMenuBar, model.actions.setRestrictsMenuBar)) {
+                        Text("只顯示排好的 App")
+                        Text("選單列只放目前情境版面裡的 App，其他的收進 Whisky Bar，不再擠進系統的「»」。在 Whisky Bar 點一下，那個 App 會暫時單獨出現在選單列上，幫你點開，用完再收回去。新出現的 App 也會收進 Whisky Bar；右鍵選「一直顯示在選單列上」就會留下來。")
+                    }
+                    .disabled(!model.canRestrictMenuBar)
+                    if model.restrictsMenuBar {
+                        note("macOS 在限制期間不讓時鐘打開通知中心：你點時鐘時，Whisky 會先把選單列全部放出來、幫你打開，關掉通知中心後再收回去。麥克風、相機使用中的提示也可能被藏起來。關掉這個開關或結束 Whisky，選單列就完全恢復。", warning: false)
+                    }
+                } else {
+                    Toggle(isOn: Binding(
+                        get: { model.spacerOn },
+                        set: { on in
+                            model.spacerBusy = true
+                            model.spacerProblem = nil
+                            Task {
+                                model.spacerProblem = await model.actions.setSpacer(on)
+                                model.spacerBusy = false
+                                model.actions.refresh()
+                            }
+                        }
+                    )) {
+                        HStack(spacing: 6) {
+                            Text("只顯示排好的圖示（分隔項目）")
+                            if model.spacerBusy { ProgressView().controlSize(.mini) }
+                        }
+                        Text("其他圖示推到螢幕外，不會因為某個圖示變寬而被補位。")
+                    }
+                    .disabled(model.spacerBusy || !model.hasAccessibility || !model.movesItems)
+                    if let problem = model.spacerProblem {
+                        note(problem, warning: true)
+                    }
+                    if model.spacerOn {
+                        Toggle(isOn: binding(\.placesRunAtLaunch, model.actions.setPlacesRunAtLaunch)) {
+                            Text("重新啟動後自動排回來")
+                            Text("開機或更新後，分隔項目偶爾會被放錯位置。等你停下滑鼠幾秒後自動排好；關掉的話只提醒你。")
                         }
                     }
-                )) {
-                    HStack(spacing: 6) {
-                        Text("只顯示排好的圖示（分隔項目）")
-                        if model.spacerBusy { ProgressView().controlSize(.mini) }
-                    }
-                    Text("其他圖示推到螢幕外，不會因為某個圖示變寬而被補位。")
-                }
-                .disabled(model.spacerBusy || !model.hasAccessibility || !model.movesItems)
-                if let problem = model.spacerProblem {
-                    note(problem, warning: true)
-                }
-                if model.spacerOn {
-                    Toggle(isOn: binding(\.placesRunAtLaunch, model.actions.setPlacesRunAtLaunch)) {
-                        Text("重新啟動後自動排回來")
-                        Text("開機或更新後，分隔項目偶爾會被放錯位置。等你停下滑鼠幾秒後自動排好；關掉的話只提醒你。")
-                    }
-                }
 
-                Toggle(isOn: binding(\.watchesLayout, model.actions.setWatchesLayout)) {
-                    Text("版面跑掉時提醒我")
-                    Text("App 重開或更新後圖示換了位置時提醒你，按一下排回來。")
-                }
-                .disabled(!model.hasAccessibility)
-                if model.watchesLayout, let count = model.savedLayoutCount {
-                    LabeledContent("記住的版面：\(count) 個圖示") {
-                        Button("改成目前的版面") { Task { await model.actions.keepCurrentLayout(); model.actions.refresh() } }
+                    Toggle(isOn: binding(\.watchesLayout, model.actions.setWatchesLayout)) {
+                        Text("版面跑掉時提醒我")
+                        Text("App 重開或更新後圖示換了位置時提醒你，按一下排回來。")
                     }
+                    .disabled(!model.hasAccessibility)
+                    if model.watchesLayout, let count = model.savedLayoutCount {
+                        LabeledContent("記住的版面：\(count) 個圖示") {
+                            Button("改成目前的版面") { Task { await model.actions.keepCurrentLayout(); model.actions.refresh() } }
+                        }
+                    }
+                    LabeledContent("決定哪些圖示留在選單列上") {
+                        Button("排列選單列…", action: model.actions.showEditor)
+                    }
+                    .disabled(!model.hasAccessibility || !model.movesItems)
                 }
-                LabeledContent("決定哪些圖示留在選單列上") {
-                    Button("排列選單列…", action: model.actions.showEditor)
-                }
-                .disabled(!model.hasAccessibility || !model.movesItems)
             }
 
             PresetSection(model: model)

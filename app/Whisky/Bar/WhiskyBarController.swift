@@ -12,6 +12,8 @@ final class WhiskyBarController {
     var onArranged: (() async -> Void)?
     var onKeepLayout: (() -> Void)?
     var onAssignShortcut: ((_ key: String, _ name: String) -> Void)?
+    /// macOS 27: opens the items Whisky left out of the menu bar.
+    var menuBar27: MenuBar27Controller?
 
     private static let notchKey = "opensFromNotch"
 
@@ -84,6 +86,7 @@ final class WhiskyBarController {
     /// Opens one item straight away (its own shortcut): its mirrored menu drops from the menu bar under the item when
     /// it is drawn, else under the notch (or the pointer).
     func openItem(key: String) {
+        if openLeftOut(key: key) { return }
         Task {
             await model.refresh(captureGlyphs: false)
             guard let item = model.lastScan.first(where: { $0.key == key }) else {
@@ -166,7 +169,17 @@ final class WhiskyBarController {
 
     // MARK: - Actions
 
+    /// macOS 27: an item Whisky left out of the menu bar is opened by letting its app in for a moment.
+    private func openLeftOut(key: String) -> Bool {
+        guard let menuBar27, menuBar27.isHidden(key: key) else { return false }
+        model.recordUse(key)
+        close()
+        Task { await menuBar27.open(key: key) }
+        return true
+    }
+
     private func open(_ item: BarItem, fromKeyboard: Bool = false) {
+        if openLeftOut(key: item.scanned.key) { return }
         model.recordUse(item.scanned.key)
         // Drop the menu from the menu bar, as the item itself would: under the pointer, or under the panel's left edge
         // when the keyboard chose the item.
@@ -209,6 +222,7 @@ final class WhiskyBarController {
     }
 
     private func press(_ item: BarItem) {
+        if openLeftOut(key: item.scanned.key) { return }
         model.recordUse(item.scanned.key)
         close()
         Task { await activator.press(item.scanned) }
@@ -221,6 +235,10 @@ final class WhiskyBarController {
 
     private func pin(_ item: BarItem) {
         close()
+        if let menuBar27, item.scanned.id.hasPrefix(MenuBar27Controller.entryPrefix), let bundleID = item.scanned.bundleID {
+            menuBar27.setShown(true, bundleID: bundleID)
+            return
+        }
         let key = item.scanned.key
         let name = item.tooltip
         Task {

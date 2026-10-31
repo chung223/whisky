@@ -121,6 +121,11 @@ final class BarModel {
         frequentKeys = items.count > 8 ? top : []
     }
 
+    /// Every scan's items (macOS 27 remembers which apps have items).
+    @ObservationIgnored var onScan: (([ScannedItem]) -> Void)?
+    /// macOS 27 while the menu bar is restricted: the items Whisky left out, which AX can't see (nil otherwise).
+    @ObservationIgnored var leftOut: (() -> [ScannedItem]?)?
+
     @ObservationIgnored private let scanner = MenuBarScanner()
     @ObservationIgnored private var glyphCache: [String: (width: CGFloat, glyph: Glyph)] = [:]
 
@@ -161,9 +166,11 @@ final class BarModel {
         }.value
 
         lastScan = scanned
+        onScan?(scanned)
         shownItems = scanned.filter { $0.placement == .shown && !Self.isSystemOwned($0) && $0.windowID != nil }
         var icons: [pid_t: NSImage] = [:]
-        items = scanned.filter { $0.placement != .shown }.map { item in
+        let notDrawn = leftOut?() ?? scanned.filter { $0.placement != .shown }
+        items = notDrawn.map { item in
             let icon = icons[item.pid] ?? NSRunningApplication(processIdentifier: item.pid)?.icon
             icons[item.pid] = icon
             var glyph: Glyph?

@@ -98,7 +98,8 @@ struct BarContentView: View {
         } else {
             VStack(alignment: .leading, spacing: 2) {
                 if !sections.frequent.isEmpty { section("常用", sections.frequent) }
-                if !sections.hidden.isEmpty { section(style == .notch ? "瀏海後面" : "藏起來的", sections.hidden) }
+                // macOS 27: nothing is behind the notch; they were left out of the menu bar.
+                if !sections.hidden.isEmpty { section(!PlatformSupport.movesItems ? "收起來的" : style == .notch ? "瀏海後面" : "藏起來的", sections.hidden) }
                 if !sections.off.isEmpty { section("不在選單列上", sections.off) }
             }
         }
@@ -267,6 +268,9 @@ private struct BarCell: View {
         .contextMenu {
             if item.scanned.placement == .hidden, item.scanned.windowID != nil, PlatformSupport.movesItems {
                 Button("放到選單列上") { actions.pin(item) }
+                Divider()
+            } else if item.scanned.id.hasPrefix(MenuBar27Controller.entryPrefix) {
+                Button("一直顯示在選單列上") { actions.pin(item) }
                 Divider()
             }
             Button("直接點按") { actions.press(item) }

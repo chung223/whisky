@@ -29,6 +29,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var diagnostics: Diagnostics?
     private var memory: LayoutMemory!
     private var watcher: ChangeWatcher!
+    private var menuBar27: MenuBar27Controller!
     private let presets = PresetManager()
     private let settings = SettingsController()
     private let welcome = WelcomeController()
@@ -71,6 +72,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         bar.onArranged = { [weak self] in await self?.memory.remember() }
         bar.onRestoreLayout = { [weak self] in self?.restoreLayout() }
         bar.onKeepLayout = { [weak self] in Task { await self?.memory.remember() } }
+        menuBar27 = MenuBar27Controller(activator: ItemActivator(arranger: arranger))
+        menuBar27.arrangement = { [weak self] in self?.presets.active?.keys ?? self?.memory.saved ?? [] }
+        menuBar27.onChangeArrangement = { [weak self] keys, shown in self?.changeArrangement(keys, shown: shown) }
+        bar.menuBar27 = menuBar27
+        model.onScan = { [weak self] items in self?.menuBar27.learn(items) }
+        model.leftOut = { [weak self] in self?.menuBar27.hiddenEntries() }
         bar.onAssignShortcut = { [weak self] key, _ in
             guard let self else { return }
             if !self.settings.model.pendingItemKeys.contains(key) { self.settings.model.pendingItemKeys.append(key) }
@@ -127,13 +134,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         menu.addItem(.separator())
 
-        if PlatformSupport.movesItems { menu.addItem(presetsMenuItem()) }
+        if PlatformSupport.movesItems || MenuBar27Controller.isAvailable { menu.addItem(presetsMenuItem()) }
 
         if PlatformSupport.movesItems {
             let spacerItem = item("只顯示排好的圖示（分隔項目）", #selector(toggleSpacer))
             spacerItem.state = spacer.isActive ? .on : .off
             spacerItem.toolTip = "在排好的圖示左邊放一個分隔項目，把其他圖示推到螢幕外；它們仍可從 Whisky Bar 打開。"
             menu.addItem(spacerItem)
+        } else if MenuBar27Controller.isAvailable {
+            let restrict = item("只顯示排好的 App", #selector(toggleRestriction))
+            restrict.state = menuBar27.isEnabled ? .on : .off
+            restrict.toolTip = "選單列只放目前情境版面裡的 App，其他的收進 Whisky Bar。"
+            menu.addItem(restrict)
+            if menuBar27.isRestricting { menu.addItem(putInBarItem()) }
         } else {
             let note = NSMenuItem(title: "\(PlatformSupport.versionName) 還不支援排列與分隔項目", action: nil, keyEquivalent: "")
             note.isEnabled = false
@@ -207,6 +220,52 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             case .failure(let failure): ArrangeAlert.show(action: "把「\(title)」收到瀏海後面", failure: failure)
             }
         }
+    }
+
+    // MARK: - macOS 27
+
+    @objc private func toggleRestriction() { menuBar27.isEnabled.toggle() }
+
+    /// macOS 27: the arranged apps; choosing one puts it in Whisky Bar.
+    private func putInBarItem() -> NSMenuItem {
+        let parent = NSMenuItem(title: "收進 Whisky Bar", action: nil, keyEquivalent: "")
+        let submenu = NSMenu()
+        for app in menuBar27.shownApps() {
+            let entry = item(app.localizedName ?? app.bundleIdentifier ?? "?", #selector(putInBar(_:)))
+            entry.representedObject = app.bundleIdentifier
+            entry.image = app.icon.map { icon in
+                let copy = icon.copy() as! NSImage
+                copy.size = NSSize(width: 16, height: 16)
+                return copy
+            }
+            submenu.addItem(entry)
+        }
+        parent.submenu = submenu
+        return parent
+    }
+
+    @objc private func putInBar(_ sender: NSMenuItem) {
+        guard let bundleID = sender.representedObject as? String else { return }
+        menuBar27.setShown(false, bundleID: bundleID)
+    }
+
+    /// macOS 27: an app shown or put in Whisky Bar becomes part of the active preset (there is no arranging to
+    /// remember it from).
+    private func changeArrangement(_ keys: [String], shown: Bool) {
+        var current = presets.active?.keys ?? memory.saved ?? []
+        if shown {
+            current += keys.filter { !current.contains($0) }
+        } else {
+            current.removeAll { keys.contains($0) }
+        }
+        memory.saved = current
+        presets.syncActive(current, afterPuttingBack: false)
+    }
+
+    /// Keys remembered from before (presets, the saved layout, uses, shortcuts): their apps are known to have items.
+    private func rememberedKeys() -> [String] {
+        let uses = (UserDefaults.standard.dictionary(forKey: "itemUses") ?? [:]).keys
+        return presets.presets.flatMap(\.keys) + (memory.saved ?? []) + uses + ItemHotKeyPreference.all.keys
     }
 
     // MARK: - Layout memory
@@ -336,6 +395,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             },
             setSpacer: { [weak self] on in await self?.setSpacer(on) },
             setWatchesLayout: { [weak self] on in self?.memory.isWatching = on },
+            setRestrictsMenuBar: { [weak self] on in self?.menuBar27.isEnabled = on },
             keepCurrentLayout: { [weak self] in await self?.memory.remember() },
             showEditor: { [weak self] in self?.editor.show() },
             requestAccessibility: { [weak self] in self?.requestAccessibility() },
@@ -358,6 +418,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.opensFromNotch = bar.opensFromNotch
         model.movesItems = PlatformSupport.movesItems
         model.platformName = PlatformSupport.versionName
+        model.canRestrictMenuBar = MenuBar27Controller.isAvailable
+        model.restrictsMenuBar = menuBar27.isEnabled
         model.glassInNotch = glassInNotch
         model.announcesChanges = watcher.isEnabled
         model.placesRunAtLaunch = placesRunAtLaunch
@@ -437,6 +499,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // The preset the conditions call for now: its arrangement is what the launch check compares with.
         if let preset = presets.selectForLaunch(), !preset.keys.isEmpty, preset.keys != memory.saved {
             memory.saved = preset.keys
+        }
+        guard PlatformSupport.movesItems else {
+            // macOS 27: nothing to put back; the preset is in place once the menu bar is restricted to it.
+            presets.confirmPending()
+            await menuBar27.start(seedKeys: rememberedKeys())
+            return
         }
         await spacer.start()
         if spacer.isActive {
@@ -533,6 +601,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func switchTo(_ preset: LayoutPreset) {
         guard !preset.keys.isEmpty else { return }
         memory.saved = preset.keys
+        guard PlatformSupport.movesItems else {
+            presets.confirmPending()
+            Task { await menuBar27.update() }
+            return
+        }
         requestPutBack(status: "換成「\(preset.name)」版面，先別動滑鼠")
     }
 
@@ -607,6 +680,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             case ("spacer-on", _): Task { Log.write("url spacer-on: \(await setSpacer(true) ?? "done")") }
             case ("spacer-off", _): Task { _ = await setSpacer(false) }
             case ("glass-in-notch", _): glassInNotch = url.query()?.contains("on=1") == true
+            // macOS 27: whisky://restrict?on=1 or on=0 (the switch in Settings); whisky://open-hidden?key=<key>.
+            case ("restrict", _): menuBar27.isEnabled = url.query()?.contains("on=1") == true
+            case ("open-hidden", let key?): Task { await menuBar27.open(key: key) }
             case ("move", _):
                 // Debugging: whisky://move?item=<window ID>&leftOf=<window ID> (or rightOf=).
                 let query = Dictionary((URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []).map { ($0.name, $0.value ?? "") }, uniquingKeysWith: { a, _ in a })
@@ -713,4 +789,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func quit() { NSApp.terminate(nil) }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        // The holder would end with Whisky anyway; this brings the whole menu bar back without waiting for it.
+        menuBar27?.stop()
+    }
 }

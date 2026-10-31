@@ -32,6 +32,11 @@ targets:
       - path: Whisky
     dependencies:
       - package: WhiskyCore
+      # macOS 27: the process that holds the menu bar restriction (Contents/MacOS/WhiskyHolder).
+      - target: WhiskyHolder
+        embed: true
+        copy:
+          destination: executables
     info:
       path: Whisky/Info.plist
       properties:
@@ -53,3 +58,14 @@ targets:
         PRODUCT_NAME: Whisky
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         GENERATE_INFOPLIST_FILE: NO
+
+  WhiskyHolder:
+    type: tool
+    platform: macOS
+    sources:
+      - path: WhiskyHolder
+    settings:
+      base:
+        PRODUCT_NAME: WhiskyHolder
+        PRODUCT_BUNDLE_IDENTIFIER: com.chung.whisky.holder
+        SKIP_INSTALL: YES

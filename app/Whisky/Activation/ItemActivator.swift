@@ -128,6 +128,47 @@ final class ItemActivator {
         _ = await arranger.sendAwayWindow(windowID, label: "put \(item.id) back")
     }
 
+    // MARK: - macOS 27: drawn for a moment
+
+    /// macOS 27: the item's app was let into the menu bar for a moment, so the item is drawn at `item.frame` (no
+    /// window of its own to route a click to). Clicks it the way that works for its app and returns once what it
+    /// opened is closed; false when nothing opened.
+    ///
+    /// Each way gets 2.5 s: apps answer slowly right after being let in (measured 2026-10-31: Presence's menu came up
+    /// 2 s after the click, its AXPress timed out yet was carried out later), and trying the next way while the first
+    /// is still coming clicks the menu closed again.
+    func openDrawn(_ item: ScannedItem) async -> Bool {
+        let before = Set(WindowList.onscreenWindows().map(\.id))
+        let frame = item.frame
+        let patience: Duration = .milliseconds(2500)
+        var opened: Set<UInt32> = []
+        let prefersPlainClick = item.bundleID.map { Self.plainClickApps.contains($0) } ?? false
+        if prefersPlainClick {
+            opened = await plainClick(item, frame: frame, itemMidX: frame.midX, besides: before, timeout: patience)
+        }
+        if opened.isEmpty {
+            let pressResult = await axPress(item)
+            // A timeout isn't a refusal: the app may still carry the press out.
+            if pressResult == AXError.success.rawValue || pressResult == AXError.cannotComplete.rawValue {
+                opened = await waitForPopup(near: frame.midX, of: item, besides: before, timeout: patience)
+            }
+            Log.write("open \(item.id): AXPress \(pressResult == AXError.success.rawValue ? "ok" : "failed (\(pressResult))"), \(opened.isEmpty ? "nothing opened" : "opened")")
+        }
+        if opened.isEmpty, !prefersPlainClick {
+            opened = await plainClick(item, frame: frame, itemMidX: frame.midX, besides: before, timeout: patience)
+            if !opened.isEmpty, let bundleID = item.bundleID { Self.plainClickApps.insert(bundleID) }
+        } else if opened.isEmpty, prefersPlainClick, let bundleID = item.bundleID {
+            Self.plainClickApps.remove(bundleID)
+        }
+        Log.write("open \(item.id): drawn for a moment, opened \(opened.count) window(s)")
+        guard !opened.isEmpty else {
+            logNewWindows(besides: before, for: item)
+            return false
+        }
+        await waitUntilClosed(opened)
+        return true
+    }
+
     /// Waits for a dropdown, popover or menu near the item, from any process (some apps draw their dropdown from a
     /// helper process, so watching only the item's owner misses it).
     private func waitForPopup(near itemMidX: CGFloat, of item: ScannedItem, besides before: Set<UInt32>, timeout: Duration) async -> Set<UInt32> {
@@ -164,9 +205,14 @@ final class ItemActivator {
     /// An ordinary click with the pointer moved onto the item, left there until the dropdown is up, then put back.
     private func plainClick(_ item: ScannedItem, windowID: UInt32, itemMidX: CGFloat, besides before: Set<UInt32>) async -> Set<UInt32> {
         guard let frame = WindowList.statusFrames(inMenuBarRowOnly: true)[windowID] else { return [] }
+        return await plainClick(item, frame: frame, itemMidX: itemMidX, besides: before)
+    }
+
+    private func plainClick(_ item: ScannedItem, frame: CGRect, itemMidX: CGFloat, besides before: Set<UInt32>,
+                            timeout: Duration = .milliseconds(1500)) async -> Set<UInt32> {
         let saved = CGEvent(source: nil)?.location
         await Task.detached(priority: .userInitiated) { Self.plainClick(at: CGPoint(x: frame.midX, y: frame.midY)) }.value
-        let opened = await waitForPopup(near: itemMidX, of: item, besides: before, timeout: .milliseconds(1500))
+        let opened = await waitForPopup(near: itemMidX, of: item, besides: before, timeout: timeout)
         if let saved { CGWarpMouseCursorPosition(saved) }
         Log.write("open \(item.id): plain click \(opened.isEmpty ? "nothing opened" : "opened")")
         return opened

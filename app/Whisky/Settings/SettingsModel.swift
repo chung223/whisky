@@ -25,6 +25,7 @@ final class SettingsModel {
         /// Returns a problem to show, or nil.
         var setSpacer: (Bool) async -> String? = { _ in nil }
         var setWatchesLayout: (Bool) -> Void = { _ in }
+        var setRestrictsMenuBar: (Bool) -> Void = { _ in }
         var keepCurrentLayout: () async -> Void = {}
         var showEditor: () -> Void = {}
         var requestAccessibility: () -> Void = {}
@@ -62,6 +63,9 @@ final class SettingsModel {
     /// False on macOS 27 (or while simulating it): nothing that moves items is available.
     var movesItems = true
     var platformName = ""
+    /// macOS 27: the menu bar is restricted to the arranged apps.
+    var restrictsMenuBar = false
+    var canRestrictMenuBar = false
     var spacerOn = false
     var spacerBusy = false
     var spacerProblem: String?
