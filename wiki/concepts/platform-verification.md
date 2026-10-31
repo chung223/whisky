@@ -216,3 +216,7 @@ mouse-down 落在 Whisky 自己的圖示中心、帶 ⌘ 與欄位 `0x33`（被�
 - 【觀察】`MenuBarClientCore` 檔案不在磁碟上（在 dyld shared cache），但 `dlopen` 成功；`MBAssessmentModeConfiguration` 有 `initWithAllowedSystemItems:allowedBundleIdentifiers:`、`initWithUnrestrictedMenuBarItems`；`MBAssessmentModeAssertion` 有 `activateWithConfiguration:completionHandler:`、`activateWithCompletionHandler:`、`activate:completion:`、`invalidate`。
 - 【觀察】用一個測試程式啟用允許清單 12 秒（使用者版面裡的 App ＋ `com.apple.MenuBarAgent`、系統項目 0–8 全部）：activate 回 ok，**» 消失**，原本在 » 裡的 Shot 畫出來了；程式結束後 » 回來、選單列恢復。確認 assertion 綁在程式上（fail-open）。
 - 【未知】Presence 不在清單裡，AX 期間仍列出它；AX 不一定反映有沒有畫出來，需要用截圖確認。
+- 【觀察】（同日稍後，用截圖確認）Presence 確實沒畫出來，AX 只是留著舊項目；兩個限制同時存在會整條放開；同一程序先 invalidate 再 activate 可以換清單；
+  限制期間點時鐘打不開通知中心。細節與 Whisky 的對策見 [allow-list](menubar-agent-allow-list.md#whisky-的實作與實測2026-10-31macos-272)。
+- 【觀察】Whisky 的 27 後端裝上後（commit 9e3b579）：「平常」版面的 App 留在選單列，16 個 App 收進 Whisky Bar；從 Whisky Bar 打開 Presence、
+  點時鐘開通知中心都可用。平常版面在時光機備份圖示出現時還是放不下一個（Shot 進 »），屬於空間不夠，不是漏藏。

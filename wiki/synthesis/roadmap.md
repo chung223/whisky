@@ -79,6 +79,8 @@ updated: 2026-10-15
 
 - `GoldenGateBackend`：
   - allow-list engine：先啟用新的再作廢舊的；不需變更時不做任何事；偵測到被系統拆掉就重送。assertion 放在 holder 子程序，新 holder 回報成功後才殺舊的（依 S4 結果）。
+    **2026-10-31 實測修正**：27.2 上兩個限制同時存在會整條放開，所以改成同一個 holder 先 invalidate 再 activate。已實作：holder、依情境版面的清單、
+    探查有圖示的 App、從 Whisky Bar 暫時放出來點開、時鐘轉送（[allow-list](../concepts/menubar-agent-allow-list.md)）。還沒做：系統項目的個別隱藏、被系統拆掉時重送。
   - 系統項目編號 0–8：Clock、Control Center 只能藏、不能移。
   - adoption window：處理新項目被擱置的問題。
   - 點時鐘開通知中心要轉送。

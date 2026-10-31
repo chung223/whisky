@@ -5,9 +5,10 @@
 14 吋 MacBook Pro 的瀏海右邊只放得下大約 9 個選單列圖示，其餘的 macOS 根本不畫出來，也點不到。
 Whisky 把它們找回來，讓你決定哪些留在選單列上，其他的收進一條可以搜尋的 Whisky Bar。
 
-> 目前是 0.9，只支援 **macOS 26（Tahoe）、Apple Silicon**，仍在開發中。
-> macOS 27 的選單列機制完全不同，還沒支援（研究筆記見 [wiki](wiki/concepts/menubar-agent-allow-list.md)）。
-> 在 27 上 Whisky 會自動降級：仍能從 Whisky Bar 打開被藏起來的圖示，但不會移動任何圖示（排列、分隔項目、自動排回都停用）。
+> 目前是 0.9，完整支援 **macOS 26（Tahoe）、Apple Silicon**，仍在開發中。
+> macOS 27 的選單列機制完全不同，圖示不能再移動（排列、分隔項目、自動排回都停用）。
+> 27 上改用「只顯示排好的 App」：選單列只放目前情境版面裡的 App，其他的收進 Whisky Bar，點一下會暫時單獨出現在選單列上幫你打開
+> （用 macOS 的私有 allow-list，研究筆記見 [wiki](wiki/concepts/menubar-agent-allow-list.md)）。
 
 ## 功能
 
@@ -71,7 +72,7 @@ cd app/Packages/WhiskyCore && swift test
 
 ## 限制
 
-- 只支援 macOS 26。macOS 27 改由 MenuBarAgent 繪製整條選單列，需要另一套做法。
+- macOS 27 只能決定哪些 App 出現在選單列上，不能排順序；同一個 App 的多個圖示一起顯示或收起。限制期間點時鐘時，選單列會暫時全部放出來，等通知中心關掉再收回。
 - 搜尋不支援中文輸入法組字。
 - 少數圖示截不到真實圖案（顯示 App 圖示）。
 

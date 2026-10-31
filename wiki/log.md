@@ -209,3 +209,8 @@
 - 使用者已在 27.2，選單列多了系統的 »。Whisky 27 降級保護正常（0 次拖曳）；改成有瀏海時把酒杯收起來。
 - `MBAssessmentModeAssertion` 在 27.2 可用；只允許使用者版面裡的 App 時 » 消失，程式結束後恢復。下一步：Whisky 的 27 後端（holder 子程式、依情境決定允許清單、從瀏海暫時放出被藏的 App）。
 - 更新 concepts/platform-verification.md。
+
+## [2026-10-31] re | Whisky 的 macOS 27 後端：只顯示排好的 App
+- 新增 WhiskyHolder（持有限制的小程式，stdin 換清單）、MenuBarAllowList、MenuBar27Controller、WhiskyCore `MenuBarRestriction`（6 個測試）。commit 9e3b579。
+- 實測：兩個限制同時存在會整條放開（同程序先 invalidate 再 activate 才行）；AX 留著被藏 App 的舊項目；限制期間時鐘打不開通知中心，改用轉送；Presence 的 AXPress 逾時但延遲執行。
+- 更新 concepts/menubar-agent-allow-list.md（新段落）、concepts/platform-verification.md、overview.md、synthesis/roadmap.md M5、README。

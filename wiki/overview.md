@@ -61,8 +61,8 @@ updated: 2026-10-16
 - 27 上逐 App 的 `AXExtrasMenuBar` frame 是否可信。
 - Apple 會不會在 27.x 封鎖 `MBAssessmentModeAssertion`。
 - 改寫系統「Allow in the Menu Bar」清單：檔案位置與格式已從 [Chest](projects/chest.md) 原始碼得知，但授權流程、和 MenuBarAgent 的 race、crash 後的還原仍要實測（S6）。
-- 27 上同一個程序 `invalidate()` 之後通知中心是否仍打不開（[MenuTidy](projects/menutidy.md) 的說法，和 Pelmet 的做法矛盾，S4）。
-- 27 上被藏的項目能不能用 menu mirroring 打開（26.7 已確認可以，包括被推到螢幕外的項目）。
+- ~~27 上同一個程序 `invalidate()` 之後通知中心是否仍打不開~~：2026-10-31 實測，限制期間點時鐘就打不開（不論哪個程序），解除後可以；Whisky 用轉送解決（[allow-list](concepts/menubar-agent-allow-list.md)）。
+- 27 上被藏的項目能不能用 menu mirroring 打開（26.7 已確認可以）。被 allow-list 藏起來的 App 沒有可用的 AX 項目，Whisky 改成暫時只讓它出現再點（2026-10-31 可用）。
 - 27 上撐寬還推不推得動、合成 ⌘ 拖曳會不會被交給 Mission Control：各專案的 README 互相矛盾（S1、S7）。26.7 上分隔項目 10000 pt 可用，`0x33` ⌘ 拖曳可用。
 - 瀏海邊界重新挑項目的規則（和各項目的 preferred position 有關？）。
 - Bartender 的 `.BartenderPreferences` 格式；Ghidra 對主程式的分析逾時，部分位址還沒看到偽代碼。

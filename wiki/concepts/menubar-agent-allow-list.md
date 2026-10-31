@@ -163,4 +163,28 @@ item**。這是目前公開程式碼中唯一能在 macOS 27「真正隱藏」�
 - 系統 icon 做成可個別隱藏的 item（0…8；Clock、Control Center 只能藏不能移）；內建 adoption window、外部拆除偵測與 idempotent no-op；
   bundle-less 與 collateral 兩種失敗都以「實際觀察到的 bar」判定並在 UI 標示（參考 [Pelmet](../projects/pelmet.md) 的行為，不抄 GPL 程式碼）。
 
-相關：[private-apis](private-apis.md)、[permissions](permissions.md)。
+## Whisky 的實作與實測（2026-10-31，macOS 27.2）
+
+Whisky 0.9 之後的 27 後端（`app/Whisky/MenuBar27/`、`app/WhiskyHolder/`）在使用者的 14 吋 MacBook Pro 上量到：
+
+- 【觀察】**兩個限制同時存在時，整條選單列全部放出來**：同一個程序不 invalidate 就再 activate 一次，或另一個程序再 activate，
+  結果都是 » 回來、被藏的 App 出現；舊的那個結束後，剩下的那個才生效。所以「先啟用新的再作廢舊的」在 27.2 行不通，
+  和第 8 點 Pelmet 的「無縫 swap」矛盾。Whisky 的作法是同一個 holder 程序先 `invalidate` 再 `activate`（中間有一瞬間全放出來）。
+- 【觀察】同一個程序 `invalidate` 之後可以再 `activate`，限制照樣生效。
+- 【觀察】`initWithUnrestrictedMenuBarItems` 的效果和沒有限制一樣（» 照樣出現），不能拿來把所有項目畫出來。
+- 【觀察】**AX 不能判斷有沒有畫出來**：被限制藏起來的 App，自己的 `AXExtrasMenuBar` 還留著項目和舊的 frame；被擠進 » 的 App 則
+  完全沒有。系統 » 本身是 MenuBarAgent `AXExtrasMenuBar` 裡 `AXIdentifier` 為 `menu-bar-overflow-indicator` 的 `AXButton`，
+  可以用來判斷還有沒有東西放不下。
+- 【觀察】**找出有圖示的 App**：只允許還沒看過的 App 1.2 秒，再讀它們的 AX，就能看到它們的項目；» 還在就把看到的移掉、剩下的再看一輪。
+  使用者的 Mac 上兩輪找到 10 個原本藏在 » 裡的 App（Surge、Dockette、G Hub、FineTune、Spyder、AI Edge、OpenWiki、Claude、Tessera 等）。
+  `~/Library/Group Containers/group.com.apple.controlcenter` 與 `com.apple.MenuBar` 的 plist 從終端機讀不到（TCC：Operation not permitted），
+  所以沒用 Chest 的作法。
+- 【觀察】**時鐘**：清單裡有 `com.apple.MenuBarAgent` 時，限制期間點時鐘還是打不開通知中心；解除後就打得開；合成的 Globe-N 在限制期間也打不開。
+  轉送可行：偵測到點時鐘 → 解除 → 400 ms 後替使用者點時鐘 → 通知中心面板（`com.apple.notificationcenterui` 的全螢幕視窗，layer 23；
+  桌面小工具是負的 layer）消失超過 1 秒 → 再限制。面板滑入時視窗會短暫消失，只看一次會誤判成已關閉。
+- 【觀察】**暫時放出來點開**：只允許那一個 App，等它的 AX 項目 frame 穩定（≥ 0.6 s），再 AXPress 或一般點擊。Presence 的 AXPress
+  回 `-25204`（逾時），但 1–2 秒後還是執行了；中間改用點擊會把剛開的選單又點關。選單打開後再把 App 藏回去，選單仍然留著、可以用。
+- 【未知】限制期間新啟動的 App 會不會像第 8 點那樣被擱置：Whisky 在 App 啟動 3 秒後換一次清單（中間一瞬間解除），相當於 adoption window，還沒實測到被擱置的案例。
+- 【未知】相機／麥克風膠囊（第 9 點）是否被藏，還沒在使用中實測。
+
+相關：[private-apis](private-apis.md)、[permissions](permissions.md)、[平台實測紀錄](platform-verification.md)。
